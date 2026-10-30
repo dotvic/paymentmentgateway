@@ -28,6 +28,8 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
 (async () => {
   try {
     for (let i = 0; i < 50; i++) { try { await fetch(BASE + "/health"); break; } catch { await sleep(100); } }
+    const home = await fetch(BASE + "/");
+    assert.equal(home.status, 200); assert.ok((await home.text()).includes("DryRun"), "landing page served");
     assert.equal((await api("GET", "/v1/payments")).status, 401);
     const acct = await api("POST", "/v1/accounts"); key = acct.body.api_key;
     assert.equal(acct.status, 201);

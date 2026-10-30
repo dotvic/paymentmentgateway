@@ -1,5 +1,5 @@
-app = "dryrun-api-CHANGE-ME"   # must be globally unique; "fly launch" can rewrite this
-primary_region = "fra"          # Frankfurt
+app = "paymentmentgateway"
+primary_region = "ams"          # Amsterdam; the data volume lives in the same region
 
 [build]
 

@@ -99,3 +99,20 @@ Fly prints the DNS record to add at your domain registrar. HTTPS is issued autom
 - The machine is set never to stop, because webhook retries and the timeout simulation run on timers. This is also why it is billed continuously.
 - Fly takes automatic daily snapshots of volumes, which can add a small charge. Check the pricing page.
 - Do not scale to more than one machine until you move storage to a database.
+
+## Updating a deployed app (Windows, no Git needed)
+
+1. Download the new ZIP from GitHub (Code → Download ZIP) and unzip it over a new folder.
+2. In PowerShell, go into that folder and run `fly deploy --ha=false --app paymentmentgateway`.
+
+Your data is on the volume, so it is kept across deploys.
+
+## Opening signup to the public
+
+The web page at `/` lets visitors create a free API key themselves. While `SIGNUP_TOKEN` is set, they are asked for an invite token. To open signup to everyone:
+
+```
+fly secrets unset SIGNUP_TOKEN --app paymentmentgateway
+```
+
+Safeguards that stay on: 5 signups per hour per IP address, at most 2000 accounts (`MAX_ACCOUNTS`), 500 stored payments per account, and the monthly plan limits. Set `fly secrets set SIGNUP_TOKEN=...` again to close signup.

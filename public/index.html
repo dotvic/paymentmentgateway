@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DryRun – break your payment flow before customers do</title>
+<meta name="description" content="A sandbox payment gateway API. Test declines, 3D Secure, timeouts and signed webhooks with no real money and no real cards.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --paper:#eef1f7;--panel:#fff;--ink:#0f1b33;--mute:#56637f;--line:#d3dae8;
+  --accent:#3347e8;--accent-ink:#fff;--ok:#0e7a52;--bad:#c2342a;--wait:#a15c00;
+  --term:#0f1b33;--term-ink:#e8eeff;--term-mute:#8c9bc0;--term-ok:#5be0a8;--term-bad:#ff8f84;--term-wait:#f5c05a;
+  --r:10px;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;
+  --accent:#8191ff;--accent-ink:#0b1120;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#070c18;
+}}
+:root[data-theme="dark"]{color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;--accent:#8191ff;--accent-ink:#0b1120;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#070c18}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 "Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
+.mono,code,pre,input.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+a{color:var(--accent)}
+.wrap{max-width:1120px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;flex-wrap:wrap}
+.brand{font-weight:700;font-size:20px;letter-spacing:-.02em;text-decoration:none;color:var(--ink)}
+nav a{margin-left:20px;color:var(--mute);text-decoration:none;font-size:15px}
+nav a:hover{color:var(--ink)}
+.hero{padding:clamp(28px,6vw,64px) 0 28px}
+h1{font-size:clamp(34px,6vw,64px);line-height:1.04;letter-spacing:-.035em;margin:0 0 16px;font-weight:700;max-width:16ch}
+.lede{font-size:clamp(17px,2vw,20px);color:var(--mute);max-width:58ch;margin:0}
+h2{font-size:24px;letter-spacing:-.02em;margin:0 0 6px}
+h3{font-size:16px;margin:0 0 10px}
+section.block{padding:clamp(28px,5vw,52px) 0;border-top:1px solid var(--line)}
+.sub{color:var(--mute);margin:0 0 20px;max-width:64ch}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
+.console{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:16px;align-items:start}
+@media(max-width:880px){.console{grid-template-columns:1fr}}
+label,.lbl{display:block;font-size:13px;color:var(--mute);margin:12px 0 5px}
+input,select,button,textarea{font:inherit;color:inherit}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+input:focus-visible,select:focus-visible,button:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button{cursor:pointer;border:1px solid var(--line);background:transparent;border-radius:8px;padding:8px 14px}
+button:hover:not(:disabled){border-color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600;padding:10px 18px}
+button.small{font-size:13px;padding:3px 9px}
+.row{display:grid;grid-template-columns:1fr 100px;gap:10px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
+.note{font-size:13px;color:var(--mute);margin:8px 0 0}
+.err{color:var(--bad);font-size:14px;margin:10px 0 0;min-height:1.2em}
+.keybox{background:var(--paper);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;font-size:13px}
+fieldset{border:0;margin:0;padding:0}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips input{position:absolute;opacity:0;width:1px;height:1px}
+.chips label{margin:0;padding:6px 11px;border:1px solid var(--line);border-radius:99px;cursor:pointer;color:var(--ink);font-size:14px}
+.chips input:checked+label{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.chips input:focus-visible+label{outline:2px solid var(--accent);outline-offset:2px}
+.chips input:disabled+label{opacity:.4;cursor:not-allowed}
+.term{background:var(--term);color:var(--term-ink);border-radius:var(--r);padding:16px;min-height:340px;font-size:13px;line-height:1.55;overflow:auto;max-height:560px}
+.term .h{color:var(--term-mute);margin:0 0 4px}
+.term pre{margin:0 0 16px;white-space:pre-wrap;word-break:break-word}
+.term .s2{color:var(--term-ok)}.term .s4{color:var(--term-bad)}.term .s5{color:var(--term-bad)}.term .s202{color:var(--term-wait)}
+.term button{border-color:#3b4a73;color:var(--term-ink);margin-right:8px}
+.tablewrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+th{color:var(--mute);font-weight:500;font-size:13px}
+td.wrapcell{white-space:normal;min-width:160px}
+.badge{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid currentColor}
+.success{color:var(--ok)}.failed{color:var(--bad)}.pending{color:var(--wait)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:880px){.grid2{grid-template-columns:1fr}}
+pre.code{background:var(--term);color:var(--term-ink);border-radius:var(--r);padding:14px;overflow:auto;font-size:13px;margin:0}
+.plans{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:720px}
+@media(max-width:600px){.plans{grid-template-columns:1fr}}
+.plans .card h3{font-size:18px;margin-bottom:2px}
+.plans ul{padding-left:18px;margin:10px 0 0;color:var(--mute)}
+.usage{font-size:14px;color:var(--mute)}
+footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--mute);font-size:14px}
+.hidden{display:none!important}
+.sr{position:absolute;left:-9999px}
+@media(prefers-reduced-motion:no-preference){.flash{animation:fl .6s ease-out}@keyframes fl{from{box-shadow:0 0 0 3px var(--accent)}}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="top">
+  <a class="brand" href="/">DryRun</a>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#cards">Test cards</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+</header>
+
+<section class="hero">
+  <h1>Break your payment flow before customers do.</h1>
+  <p class="lede">A sandbox payment gateway with a real API. Trigger declines, 3D Secure challenges, timeouts and signed webhooks on demand. No real money and no real cards, ever.</p>
+</section>
+
+<section id="try" style="padding-bottom:36px">
+  <div class="console">
+    <div class="card" id="left">
+      <div id="signup">
+        <h3>Get a free API key</h3>
+        <p class="note" style="margin:0 0 12px">200 test payments a month. No email needed.</p>
+        <div id="inviteBox" class="hidden"><label for="invite">Invite token</label><input id="invite" class="mono" autocomplete="off"></div>
+        <div class="actions" style="margin-top:12px"><button class="primary" id="create">Create API key</button></div>
+        <details style="margin-top:14px"><summary class="note" style="cursor:pointer">I already have a key</summary>
+          <label for="pasteKey">API key</label><input id="pasteKey" class="mono" placeholder="sk_test_..." autocomplete="off">
+          <div class="actions"><button id="useKey">Use this key</button></div></details>
+        <p class="err" id="signupErr" role="alert"></p>
+      </div>
+
+      <div id="session" class="hidden">
+        <h3>Your API key</h3>
+        <div class="keybox mono" id="keyShow"></div>
+        <p class="note" id="keyNote"></p>
+        <div class="actions" style="margin-top:8px"><button class="small" id="copyKey">Copy key</button><button class="small" id="forget">Forget key in this browser</button></div>
+        <p class="usage" id="usage" style="margin:10px 0 0"></p>
+      </div>
+
+      <hr style="border:0;border-top:1px solid var(--line);margin:20px 0 6px">
+      <fieldset id="form" disabled>
+        <h3>Send a payment</h3>
+        <span class="lbl" id="scLabel">Outcome</span>
+        <div class="chips" role="radiogroup" aria-labelledby="scLabel" id="chips"></div>
+        <div class="row"><div><label for="amount">Amount</label><input id="amount" type="number" min="0.01" step="0.01" value="49.90"></div>
+        <div><label for="currency">Currency</label><select id="currency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
+        <div class="row" style="grid-template-columns:1fr 1fr"><div><label for="method">Method</label><select id="method"><option value="card">Card</option><option value="paypal">PayPal</option><option value="ideal">iDEAL</option><option value="sepa">SEPA debit</option></select></div>
+        <div><label for="ttype">Type</label><select id="ttype"></select></div></div>
+        <div class="actions"><button class="primary" id="send">Send payment</button></div>
+        <p class="err" id="sendErr" role="alert"></p>
+      </fieldset>
+    </div>
+
+    <div class="term mono" id="term" aria-live="polite">
+      <p class="h">Responses appear here.</p>
+      <pre>Create a key, pick an outcome and send a payment.
+Card outcomes are chosen by the test card number,
+exactly like the list under "Test cards" below.</pre>
+    </div>
+  </div>
+</section>
+
+<section class="block hidden" id="dash">
+  <h2>Your payments</h2>
+  <p class="sub">Capture, refund or void a payment to try follow-up transactions. Amounts are checked against the parent payment.</p>
+  <div class="card tablewrap" id="ledger"></div>
+</section>
+
+<section class="block" id="webhooks">
+  <h2>Webhooks</h2>
+  <p class="sub">Register a URL and DryRun posts a signed event whenever a payment succeeds or fails. Failed deliveries are retried after 2, 10 and 30 seconds.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>Endpoint</h3>
+      <div id="whLocked" class="note">Create or paste an API key above to manage your endpoint.</div>
+      <div id="whForm" class="hidden">
+        <label for="whUrl">HTTPS URL</label><input id="whUrl" placeholder="https://example.com/hooks">
+        <div class="actions"><button class="primary" id="whSave">Save</button><button id="whPing">Send test ping</button><button id="whDel">Remove</button></div>
+        <p class="note" id="whSecret"></p>
+        <p class="err" id="whErr" role="alert"></p>
+      </div>
+    </div>
+    <div class="card"><h3>Recent deliveries</h3><div class="tablewrap" id="whLog"><p class="note">No deliveries yet.</p></div>
+      <div class="actions hidden" id="whRefreshBox"><button class="small" id="whRefresh">Refresh</button></div></div>
+  </div>
+  <h3 style="margin-top:24px">Verify the signature (Node.js)</h3>
+<pre class="code mono">const crypto = require("crypto");
+function verify(rawBody, header, secret) {
+  const [t, v1] = header.split(",").map((p) =&gt; p.split("=")[1]);
+  const expected = crypto.createHmac("sha256", secret)
+    .update(`${t}.${rawBody}`).digest("hex");
+  const fresh = Math.abs(Date.now() / 1000 - t) &lt; 300;
+  return fresh &amp;&amp; expected.length === v1.length &amp;&amp;
+    crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(v1));
+}
+// header: req.headers["x-dryrun-signature"], body: the raw request text</pre>
+</section>
+
+<section class="block" id="cards">
+  <h2>Test cards</h2>
+  <p class="sub">With a card payment, the card number decides the outcome. Any other 16-digit number is declined. Follow-up transactions and non-card methods are approved unless you force an outcome.</p>
+  <div class="card tablewrap"><table>
+    <thead><tr><th>Card number</th><th>Result</th><th>Code</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">4111 1111 1111 1111</td><td>Approved</td><td class="mono">SBX-2000</td></tr>
+      <tr><td class="mono">4000 0000 0000 0002</td><td>Declined by issuer</td><td class="mono">SBX-4002</td></tr>
+      <tr><td class="mono">4000 0000 0000 9995</td><td>Insufficient funds</td><td class="mono">SBX-4051</td></tr>
+      <tr><td class="mono">4000 0000 0000 0069</td><td>Card expired</td><td class="mono">SBX-4054</td></tr>
+      <tr><td class="mono">4000 0000 0000 3220</td><td>3D Secure challenge (HTTP 202, then confirm)</td><td class="mono">SBX-2020</td></tr>
+      <tr><td class="mono">4000 0000 0000 0408</td><td>Gateway timeout (HTTP 504, resolves by webhook after about 3 s)</td><td class="mono">SBX-5040</td></tr>
+    </tbody></table></div>
+</section>
+
+<section class="block" id="api">
+  <h2>API quick start</h2>
+  <p class="sub">Create a key above, then call the API from your own code. Every request needs the header <code class="mono">Authorization: Bearer sk_test_...</code>. Reusing a <code class="mono">request_id</code> is rejected, like on a real gateway.</p>
+<pre class="code mono"># create a payment
+curl -X POST <span class="base"></span>/v1/payments \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"request_id":"order-1001","method":"card","transaction_type":"purchase",
+       "amount":49.90,"currency":"EUR","card_number":"4111111111111111"}'
+
+# refund part of it
+curl -X POST <span class="base"></span>/v1/payments \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"request_id":"refund-1","method":"card","transaction_type":"refund",
+       "amount":10,"parent_transaction_id":"tx_..."}'
+
+# complete a 3D Secure challenge
+curl -X POST <span class="base"></span>/v1/payments/tx_.../3ds \
+  -H "Authorization: Bearer $KEY" -H "Content-Type: application/json" \
+  -d '{"result":"approve"}'</pre>
+  <p class="note">Methods: card, paypal, ideal, sepa. Transaction types: purchase or debit, authorization, capture-authorization, refund, void. Currencies: EUR, USD, GBP. Optional <code class="mono">scenario</code>: auto, approve, decline, timeout, 3ds.</p>
+</section>
+
+<section class="block" id="plans">
+  <h2>Plans</h2>
+  <p class="sub">The free plan is all you need to build and test a checkout.</p>
+  <div class="plans">
+    <div class="card"><h3>Free</h3><div class="note" style="margin:0">Available now</div>
+      <ul><li>200 test payments a month</li><li>30 requests a minute</li><li>Signed webhooks with retries</li></ul></div>
+    <div class="card"><h3>Pro</h3><div class="note" style="margin:0">Not open yet</div>
+      <ul><li>20,000 test payments a month</li><li>300 requests a minute</li><li>For teams running automated tests</li></ul></div>
+  </div>
+</section>
+
+<footer>
+  <p style="margin:0 0 6px"><strong style="color:var(--ink)">DryRun is a sandbox.</strong> It never moves money. Do not enter real card numbers, only the test cards above.</p>
+  <p style="margin:0">DryRun is an independent project and is not affiliated with any payment provider.</p>
+</footer>
+</div>
+
+<script>
+"use strict";
+var $ = function (s) { return document.querySelector(s); };
+var esc = function (s) { return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); };
+var rnd = function () { return Math.random().toString(36).slice(2, 10); };
+var fmt = function (n) { return Number(n).toFixed(2); };
+var r2 = function (n) { return Math.round(n * 100) / 100; };
+var key = null;
+try { key = localStorage.getItem("dryrun_key"); } catch (e) {}
+var keyIsNew = false;
+
+var SCENARIOS = [
+  { id: "approve", label: "Approved", card: "4111111111111111", force: "approve" },
+  { id: "decline", label: "Declined", card: "4000000000000002", force: "decline" },
+  { id: "nsf", label: "No funds", card: "4000000000009995", force: "decline" },
+  { id: "expired", label: "Expired card", card: "4000000000000069", force: "decline" },
+  { id: "3ds", label: "3D Secure", card: "4000000000003220", force: "3ds" },
+  { id: "timeout", label: "Timeout", card: "4000000000000408", force: "timeout" }
+];
+var TYPES = { card: ["purchase", "authorization"], paypal: ["debit", "authorization"], ideal: ["debit"], sepa: ["debit"] };
+var PAY = ["purchase", "debit", "capture-authorization"];
+
+async function api(method, path, body, headers) {
+  var h = Object.assign({}, headers || {});
+  if (body) h["content-type"] = "application/json";
+  if (key && !h.__nokey) h.authorization = "Bearer " + key;
+  delete h.__nokey;
+  var r = await fetch(path, { method: method, headers: h, body: body ? JSON.stringify(body) : undefined });
+  var j = null;
+  try { j = await r.json(); } catch (e) {}
+  return { status: r.status, body: j };
+}
+var errMsg = function (r) { return (r.body && r.body.error && r.body.error.message) || ("Request failed (HTTP " + r.status + ")"); };
+
+// ---------- terminal ----------
+function term(blocks) {
+  var t = $("#term");
+  t.innerHTML = blocks.map(function (b) {
+    if (b.actions) return '<div style="margin:0 0 16px">' + b.actions + "</div>";
+    var cls = b.status ? " s" + (b.status === 202 ? "202" : String(b.status)[0]) : "";
+    return '<p class="h">' + esc(b.title) + (b.status ? ' <span class="' + cls.trim() + '">HTTP ' + b.status + "</span>" : "") + "</p><pre>" + esc(JSON.stringify(b.json, null, 2)) + "</pre>";
+  }).join("");
+  t.classList.remove("flash"); void t.offsetWidth; t.classList.add("flash");
+}
+
+// ---------- session ----------
+function renderSession() {
+  var on = !!key;
+  $("#signup").classList.toggle("hidden", on);
+  $("#session").classList.toggle("hidden", !on);
+  $("#form").disabled = !on;
+  $("#dash").classList.toggle("hidden", !on);
+  $("#whLocked").classList.toggle("hidden", on);
+  $("#whForm").classList.toggle("hidden", !on);
+  $("#whRefreshBox").classList.toggle("hidden", !on);
+  if (on) {
+    $("#keyShow").textContent = keyIsNew ? key : key.slice(0, 12) + "..." + key.slice(-4);
+    $("#keyNote").textContent = keyIsNew ? "Copy it now. It is shown in full only once, and also saved in this browser so you can keep testing." : "Saved in this browser. The full key is not shown again.";
+  }
+}
+function setKey(k, isNew) { key = k; keyIsNew = !!isNew; try { localStorage.setItem("dryrun_key", k); } catch (e) {} renderSession(); refreshAll(); }
+
+$("#create").onclick = async function () {
+  $("#signupErr").textContent = "";
+  var h = {}, inv = $("#invite").value.trim();
+  if (inv) h["x-signup-token"] = inv;
+  h.__nokey = 1;
+  try {
+    var r = await api("POST", "/v1/accounts", null, h);
+    if (r.status === 201) { setKey(r.body.api_key, true); return; }
+    if (r.status === 403) $("#inviteBox").classList.remove("hidden");
+    $("#signupErr").textContent = errMsg(r) + (r.status === 403 ? ". Enter the invite token you were given." : "");
+  } catch (e) { $("#signupErr").textContent = "Could not reach the server. Check your connection."; }
+};
+$("#useKey").onclick = async function () {
+  $("#signupErr").textContent = "";
+  var k = $("#pasteKey").value.trim(), old = key;
+  if (!/^sk_test_[a-f0-9]+$/.test(k)) { $("#signupErr").textContent = "That does not look like a DryRun key. It starts with sk_test_."; return; }
+  key = k;
+  var r = await api("GET", "/v1/usage");
+  if (r.status === 200) { setKey(k, false); } else { key = old; $("#signupErr").textContent = errMsg(r); }
+};
+$("#forget").onclick = function () { key = null; keyIsNew = false; try { localStorage.removeItem("dryrun_key"); } catch (e) {} renderSession(); $("#ledger").innerHTML = ""; };
+$("#copyKey").onclick = async function () {
+  var b = $("#copyKey");
+  try { await navigator.clipboard.writeText(key); b.textContent = "Copied"; } catch (e) { b.textContent = "Select and copy manually"; }
+  setTimeout(function () { b.textContent = "Copy key"; }, 1500);
+};
+
+// ---------- payment form ----------
+function buildChips() {
+  $("#chips").innerHTML = SCENARIOS.map(function (s, i) {
+    return '<input type="radio" name="sc" id="sc_' + s.id + '" value="' + s.id + '"' + (i === 0 ? " checked" : "") + '><label for="sc_' + s.id + '">' + esc(s.label) + "</label>";
+  }).join("");
+}
+function onMethod() {
+  var m = $("#method").value;
+  $("#ttype").innerHTML = TYPES[m].map(function (t) { return "<option>" + t + "</option>"; }).join("");
+  $("#sc_3ds").disabled = m !== "card";
+  if (m !== "card" && $("#sc_3ds").checked) $("#sc_approve").checked = true;
+}
+function bodyFor(extra) { return Object.assign({ request_id: "web_" + rnd() + rnd() }, extra); }
+
+$("#send").onclick = async function () {
+  $("#sendErr").textContent = "";
+  var sc = SCENARIOS.filter(function (s) { return s.id === document.querySelector('input[name="sc"]:checked').value; })[0];
+  var m = $("#method").value, amount = parseFloat($("#amount").value);
+  if (!(amount > 0)) { $("#sendErr").textContent = "Enter an amount greater than 0."; return; }
+  var req = bodyFor({ method: m, transaction_type: $("#ttype").value, amount: amount, currency: $("#currency").value });
+  if (m === "card") { req.card_number = sc.card; } else { req.scenario = sc.force; }
+  $("#send").disabled = true;
+  try {
+    var r = await api("POST", "/v1/payments", req);
+    var blocks = [{ title: "Request  POST /v1/payments", json: req }, { title: "Response", status: r.status, json: r.body }];
+    if (r.status === 202 && r.body && r.body.three_ds) {
+      var id = r.body.id;
+      blocks.push({ actions: '<span class="h">The customer is asked to confirm. Choose what they do:</span><br><button data-3ds="approve" data-id="' + esc(id) + '">Approve</button><button data-3ds="fail" data-id="' + esc(id) + '">Fail authentication</button>' });
+    }
+    term(blocks);
+    if (r.status === 504 && r.body && r.body.error) pollTimeout(r.body.error.transaction_id, blocks);
+    if (r.status === 401) $("#sendErr").textContent = errMsg(r);
+  } catch (e) { $("#sendErr").textContent = "Could not reach the server."; }
+  $("#send").disabled = false;
+  refreshAll();
+};
+
+async function pollTimeout(id, blocks) {
+  for (var i = 0; i < 5; i++) {
+    await new Promise(function (r) { setTimeout(r, 1500); });
+    var r = await api("GET", "/v1/payments/" + id);
+    if (r.status === 200 && r.body.transaction_state !== "pending") {
+      term(blocks.concat([{ title: "Polled GET /v1/payments/" + id + " (outcome after the timeout)", status: 200, json: r.body }]));
+      refreshAll();
+      return;
+    }
+  }
+}
+$("#term").addEventListener("click", async function (e) {
+  var b = e.target.closest("button[data-3ds]");
+  if (!b) return;
+  var r = await api("POST", "/v1/payments/" + b.dataset.id + "/3ds", { result: b.dataset["3ds"] });
+  term([{ title: "Request  POST /v1/payments/" + b.dataset.id + "/3ds", json: { result: b.dataset["3ds"] } }, { title: "Response", status: r.status, json: r.body }]);
+  refreshAll();
+});
+
+// ---------- ledger ----------
+function actionsFor(p) {
+  if (p.transaction_state !== "success" || p.voided) return [];
+  var a = [];
+  if (p.transaction_type === "authorization" && r2(p.amount - p.captured_amount) > 0) a.push(["capture-authorization", "Capture", r2(p.amount - p.captured_amount)]);
+  if (PAY.indexOf(p.transaction_type) >= 0 && r2(p.amount - p.refunded_amount) > 0) a.push(["refund", "Refund", r2(p.amount - p.refunded_amount)]);
+  if (p.transaction_type !== "refund" && p.transaction_type !== "void") a.push(["void", "Void", p.amount]);
+  return a;
+}
+function detail(p) {
+  if (p.voided) return "voided";
+  if (p.transaction_state === "failed") return p.status.message;
+  if (p.transaction_type === "authorization") return "captured " + fmt(p.captured_amount || 0);
+  if (PAY.indexOf(p.transaction_type) >= 0) return "refunded " + fmt(p.refunded_amount || 0);
+  return p.status.message;
+}
+var LAST = [];
+async function refreshLedger() {
+  var r = await api("GET", "/v1/payments?limit=25");
+  if (r.status !== 200) return;
+  LAST = r.body.data;
+  $("#ledger").innerHTML = LAST.length ? "<table><thead><tr><th>ID</th><th>Type</th><th>Amount</th><th>State</th><th>Detail</th><th>Actions</th></tr></thead><tbody>" + LAST.map(function (p) {
+    var acts = actionsFor(p).map(function (a) { return '<button class="small" data-act="' + a[0] + '" data-id="' + esc(p.id) + '" data-amt="' + a[2] + '">' + a[1] + "</button> "; }).join("");
+    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + "</td></tr>";
+  }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No payments yet. Send one above.</p>';
+}
+$("#ledger").addEventListener("click", async function (e) {
+  var b = e.target.closest("button[data-act]");
+  if (!b) return;
+  var p = LAST.filter(function (x) { return x.id === b.dataset.id; })[0];
+  if (!p) return;
+  var req = bodyFor({ method: p.method, transaction_type: b.dataset.act, amount: parseFloat(b.dataset.amt), parent_transaction_id: p.id });
+  var r = await api("POST", "/v1/payments", req);
+  term([{ title: "Request  POST /v1/payments", json: req }, { title: "Response", status: r.status, json: r.body }]);
+  window.scrollTo({ top: $("#try").offsetTop - 10, behavior: "smooth" });
+  refreshAll();
+});
+
+async function refreshUsage() {
+  var r = await api("GET", "/v1/usage");
+  if (r.status === 200) $("#usage").textContent = r.body.used + " of " + r.body.limit + " test payments used this month (" + r.body.plan + " plan).";
+  else if (r.status === 401) { $("#usage").textContent = "This key is no longer valid. Create a new one."; }
+}
+
+// ---------- webhooks ----------
+async function refreshWebhook() {
+  var r = await api("GET", "/v1/webhook");
+  if (r.status !== 200) return;
+  $("#whUrl").value = r.body.url || "";
+  $("#whSecret").textContent = r.body.secret ? "Signing secret: " + r.body.secret : "No endpoint registered yet.";
+  var d = await api("GET", "/v1/webhook/deliveries");
+  if (d.status === 200) {
+    $("#whLog").innerHTML = d.body.data.length ? "<table><thead><tr><th>Event</th><th>Result</th><th>Attempts</th></tr></thead><tbody>" + d.body.data.slice(0, 10).map(function (x) {
+      var last = x.attempts[x.attempts.length - 1] || {};
+      return "<tr><td>" + esc(x.event_type) + '</td><td><span class="badge ' + (x.delivered ? "success" : "failed") + '">' + (x.delivered ? "delivered" : "failed") + "</span> " + esc(last.status || last.error || "") + "</td><td>" + x.attempts.length + "</td></tr>";
+    }).join("") + "</tbody></table>" : '<p class="note">No deliveries yet.</p>';
+  }
+}
+$("#whSave").onclick = async function () {
+  $("#whErr").textContent = "";
+  var r = await api("PUT", "/v1/webhook", { url: $("#whUrl").value.trim() });
+  if (r.status !== 200) $("#whErr").textContent = errMsg(r);
+  refreshWebhook();
+};
+$("#whPing").onclick = async function () {
+  $("#whErr").textContent = "";
+  var r = await api("POST", "/v1/webhook/test");
+  if (r.status !== 202) $("#whErr").textContent = errMsg(r);
+  else setTimeout(refreshWebhook, 2500);
+};
+$("#whDel").onclick = async function () { await api("DELETE", "/v1/webhook"); refreshWebhook(); };
+$("#whRefresh").onclick = refreshWebhook;
+
+function refreshAll() { if (!key) return; refreshLedger(); refreshUsage(); refreshWebhook(); }
+
+// ---------- init ----------
+buildChips();
+$("#method").onchange = onMethod;
+onMethod();
+Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });
+renderSession();
+if (key) {
+  api("GET", "/v1/usage").then(function (r) {
+    if (r.status === 401) { key = null; try { localStorage.removeItem("dryrun_key"); } catch (e) {} renderSession(); }
+    else refreshAll();
+  });
+}
+</script>
+</body>
+</html>

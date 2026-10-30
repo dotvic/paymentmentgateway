@@ -5,6 +5,12 @@ const http = require("http"), crypto = require("crypto"), fs = require("fs"), dn
 const PORT = +process.env.PORT || 8080;
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
 const SIGNUP_TOKEN = process.env.SIGNUP_TOKEN || "";
+const MAX_ACCOUNTS = +process.env.MAX_ACCOUNTS || 2000;
+const MAX_PAYMENTS_PER_ACCOUNT = 500;
+let INDEX_HTML = null;
+try { INDEX_HTML = fs.readFileSync(require("path").join(__dirname, "public", "index.html")); } catch {}
+// Behind Fly's proxy the socket address is the proxy, so use the header it sets (only trusted on Fly).
+const clientIp = (req) => (process.env.FLY_APP_NAME && req.headers["fly-client-ip"]) || req.socket.remoteAddress || "?";
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_WEBHOOKS === "1";
 const RETRY_MS = (process.env.RETRY_MS || "0,2000,10000,30000").split(",").map(Number);
 const SETTLE_MS = process.env.SETTLE_DELAY_MS ? +process.env.SETTLE_DELAY_MS : 3000;
@@ -169,6 +175,7 @@ function createPayment(acc, b) {
   if (type === "authorization") p.captured_amount = 0;
   if (PAY.includes(type)) p.refunded_amount = 0;
   acc.payments.unshift(p);
+  if (acc.payments.length > MAX_PAYMENTS_PER_ACCOUNT) acc.payments.length = MAX_PAYMENTS_PER_ACCOUNT;
 
   if (outcome === "approve") { settle(acc, p, true, "SBX-2000", "Transaction approved"); return { status: 201, body: pub(p) }; }
   if (outcome === "timeout") {
@@ -216,11 +223,15 @@ function auth(req) {
 async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
+  if (m === "GET" && (path === "/" || path === "/index.html") && INDEX_HTML) {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": INDEX_HTML.length, "cache-control": "no-cache", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" });
+    return res.end(INDEX_HTML);
+  }
 
   if (m === "POST" && path === "/v1/accounts") {
     if (SIGNUP_TOKEN && req.headers["x-signup-token"] !== SIGNUP_TOKEN) throw bad(403, "forbidden", "Signup is invite-only");
-    const ip = req.socket.remoteAddress || "?";
-    if (limited(signups, ip, 5, 3600e3)) throw bad(429, "rate_limited", "Too many signups from this address");
+    if (limited(signups, clientIp(req), 5, 3600e3)) throw bad(429, "rate_limited", "Too many signups from this address");
+    if (Object.keys(DB.accounts).length >= MAX_ACCOUNTS) throw bad(503, "signups_closed", "Signups are temporarily closed");
     const key = "sk_test_" + rnd(24), id = "acct_" + rnd(6);
     DB.accounts[id] = { id, plan: "free", created_at: new Date().toISOString(), usage: { month: "", count: 0 }, payments: [], deliveries: [], webhook: null };
     DB.keys[sha(key)] = id; save();
