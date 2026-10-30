@@ -1,30 +1,35 @@
-app = "paymentmentgateway"
-primary_region = "ams"          # Amsterdam; the data volume lives in the same region
+# fly.toml app configuration file generated for paymentmentgateway on 2026-10-30T20:37:59Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'paymentmentgateway'
+primary_region = 'ams'
 
 [build]
 
 [env]
-  PORT = "8080"
-  DATA_FILE = "/data/data.json"
+  DATA_FILE = '/data/data.json'
+  PORT = '8080'
 
 [[mounts]]
-  source = "dryrun_data"
-  destination = "/data"
+  source = 'dryrun_data'
+  destination = '/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "off"    # webhook retries and timeout simulation run on timers, so never stop the machine
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
 
   [[http_service.checks]]
-    grace_period = "10s"
-    interval = "30s"
-    method = "GET"
-    path = "/health"
-    timeout = "5s"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "256mb"
+  size = 'shared-cpu-1x'
+  memory = '256mb'
