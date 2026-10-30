@@ -1,0 +1,9 @@
+{
+  "name": "dryrun-api",
+  "version": "0.1.0",
+  "description": "Hosted payment-gateway sandbox API",
+  "main": "server.js",
+  "scripts": { "start": "node server.js", "test": "node smoke.js" },
+  "engines": { "node": ">=18" },
+  "license": "UNLICENSED"
+}
