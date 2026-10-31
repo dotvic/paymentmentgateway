@@ -7,14 +7,55 @@ const DATA_FILE = process.env.DATA_FILE || "./data.json";
 const SIGNUP_TOKEN = process.env.SIGNUP_TOKEN || "";
 const MAX_ACCOUNTS = +process.env.MAX_ACCOUNTS || 2000;
 const MAX_PAYMENTS_PER_ACCOUNT = 500;
-let INDEX_HTML = null;
-try { INDEX_HTML = fs.readFileSync(require("path").join(__dirname, "public", "index.html")); } catch {}
+const PUBLIC_DIR = require("path").join(__dirname, "public");
 // Behind Fly's proxy the socket address is the proxy, so use the header it sets (only trusted on Fly).
 const clientIp = (req) => (process.env.FLY_APP_NAME && req.headers["fly-client-ip"]) || req.socket.remoteAddress || "?";
 const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_WEBHOOKS === "1";
 const RETRY_MS = (process.env.RETRY_MS || "0,2000,10000,30000").split(",").map(Number);
 const SETTLE_MS = process.env.SETTLE_DELAY_MS ? +process.env.SETTLE_DELAY_MS : 3000;
 const PLANS = { free: { monthly: 200, rpm: 30 }, pro: { monthly: 20000, rpm: 300 } };
+
+// ---------- billing (Stripe) and legal pages: configured with environment variables ----------
+const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_PRICE = process.env.STRIPE_PRICE_ID || "";
+const STRIPE_WH_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const STRIPE_BASE = (process.env.STRIPE_API_BASE || "https://api.stripe.com").replace(/\/$/, "");
+const PRO_LABEL = process.env.PRO_PRICE_LABEL || "";
+const PUBLIC_URL = (process.env.PUBLIC_URL || (process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : `http://localhost:${PORT}`)).replace(/\/$/, "");
+const billingOn = () => !!(STRIPE_KEY && STRIPE_PRICE && STRIPE_WH_SECRET);
+const INACTIVE_DAYS = 365;
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const LEGAL = {
+  OPERATOR: process.env.OPERATOR_NAME || "[operator name not set]",
+  ADDRESS: process.env.OPERATOR_ADDRESS || "[operator address not set]",
+  EMAIL: process.env.CONTACT_EMAIL || "[contact email not set]",
+  LAW: process.env.GOVERNING_LAW || "the country where the operator is established",
+  PRICE: PRO_LABEL || "the price shown at checkout",
+  UPDATED: process.env.LEGAL_UPDATED || "31 October 2026",
+  DAYS: String(INACTIVE_DAYS),
+};
+const PAGES = {};
+(function loadPages() {
+  const read = (f) => { try { return fs.readFileSync(require("path").join(PUBLIC_DIR, f), "utf8"); } catch { return null; } };
+  const idx = read("index.html");
+  if (idx) PAGES["/"] = PAGES["/index.html"] = { body: Buffer.from(idx), script: true };
+  for (const n of ["terms", "privacy"]) {
+    const t = read(n + ".html");
+    if (t) PAGES["/" + n] = { body: Buffer.from(t.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in LEGAL ? escHtml(LEGAL[k]) : ""))) };
+  }
+  if (!process.env.OPERATOR_NAME) console.warn("OPERATOR_NAME is not set: the Terms and Privacy pages show placeholders.");
+})();
+function sendPage(res, pg) {
+  const csp = pg.script
+    ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    : "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+  res.writeHead(200, {
+    "content-type": "text/html; charset=utf-8", "content-length": pg.body.length, "cache-control": "no-cache",
+    "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "content-security-policy": csp,
+    "x-frame-options": "DENY", "strict-transport-security": "max-age=31536000",
+  });
+  res.end(pg.body);
+}
 
 const TYPES = {
   card: ["purchase", "authorization", "capture-authorization", "refund", "void"],
@@ -213,19 +254,109 @@ function readBody(req) {
     req.on("end", () => { if (!d) return resolve({}); try { const j = JSON.parse(d); resolve(j && typeof j === "object" ? j : {}); } catch { reject(bad(400, "invalid_json", "Body must be valid JSON")); } });
   });
 }
+function readRaw(req, max = 1e6) {
+  return new Promise((resolve, reject) => {
+    const chunks = []; let size = 0;
+    req.on("data", (c) => { size += c.length; if (size > max) { reject(bad(413, "too_large", "Body too large")); req.destroy(); } else chunks.push(c); });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+    req.on("error", reject);
+  });
+}
 function auth(req) {
   const m = (req.headers.authorization || "").match(/^Bearer (sk_test_[a-f0-9]+)$/);
   const id = m && DB.keys[sha(m[1])];
-  if (!id) throw bad(401, "unauthorized", "Missing or invalid API key. Send 'Authorization: Bearer sk_test_...'");
-  return DB.accounts[id];
+  const acc = id && DB.accounts[id];
+  if (!acc) throw bad(401, "unauthorized", "Missing or invalid API key. Send 'Authorization: Bearer sk_test_...'");
+  const today = new Date().toISOString().slice(0, 10);
+  if (acc.last_seen !== today) { acc.last_seen = today; save(); }
+  return acc;
+}
+
+// ---------- account deletion and cleanup ----------
+function purgeAccount(id) {
+  delete DB.accounts[id];
+  for (const h of Object.keys(DB.keys)) if (DB.keys[h] === id) delete DB.keys[h];
+  save();
+}
+function purgeInactive() {
+  const cutoff = Date.now() - INACTIVE_DAYS * 864e5;
+  for (const a of Object.values(DB.accounts)) {
+    const paying = a.plan === "pro" || (a.stripe && a.stripe.subscription);
+    if (!paying && (Date.parse(a.last_seen || a.created_at) || 0) < cutoff) purgeAccount(a.id);
+  }
+}
+
+// ---------- Stripe (plain HTTPS calls, no SDK) ----------
+function formEncode(obj, prefix, out) {
+  out = out || [];
+  for (const [k, v] of Object.entries(obj)) {
+    const key = prefix ? `${prefix}[${k}]` : k;
+    if (v !== null && typeof v === "object") formEncode(v, key, out);
+    else if (v !== undefined) out.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+  }
+  return out;
+}
+async function stripe(method, p, params) {
+  let res;
+  try {
+    res = await fetch(STRIPE_BASE + p, {
+      method, signal: AbortSignal.timeout(10000),
+      headers: { authorization: "Bearer " + STRIPE_KEY, ...(params ? { "content-type": "application/x-www-form-urlencoded" } : {}) },
+      body: params ? formEncode(params).join("&") : undefined,
+    });
+  } catch { throw bad(502, "billing_error", "Could not reach the payment provider. Try again in a moment."); }
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    console.error("stripe", method, p, res.status, j.error && j.error.message);
+    throw bad(502, "billing_error", "The payment provider could not complete the request. Try again later.", { provider_status: res.status });
+  }
+  return j;
+}
+function verifyStripeSignature(raw, header) {
+  if (!header || !STRIPE_WH_SECRET) return false;
+  let t = null; const v1 = [];
+  for (const part of String(header).split(",")) {
+    const i = part.indexOf("="), k = part.slice(0, i), v = part.slice(i + 1);
+    if (k === "t") t = v; else if (k === "v1") v1.push(v);
+  }
+  if (!t || !v1.length || !(Math.abs(Date.now() / 1000 - Number(t)) <= 300)) return false;
+  const expected = crypto.createHmac("sha256", STRIPE_WH_SECRET).update(`${t}.${raw}`).digest("hex");
+  return v1.some((v) => v.length === expected.length && crypto.timingSafeEqual(Buffer.from(v), Buffer.from(expected)));
+}
+function handleStripeEvent(ev) {
+  const o = (ev.data && ev.data.object) || {};
+  const byCustomer = (c) => (c ? Object.values(DB.accounts).find((a) => a.stripe && a.stripe.customer === c) : null);
+  if (ev.type === "checkout.session.completed") {
+    const acc = DB.accounts[o.client_reference_id];
+    if (!acc || o.mode !== "subscription" || !["paid", "no_payment_required"].includes(o.payment_status)) return;
+    acc.stripe = { customer: o.customer, subscription: o.subscription, status: "active" };
+    acc.plan = "pro"; save();
+  } else if (ev.type === "customer.subscription.created" || ev.type === "customer.subscription.updated") {
+    const acc = byCustomer(o.customer);
+    if (!acc) return;
+    acc.stripe.subscription = o.id; acc.stripe.status = o.status;
+    acc.plan = ["active", "trialing", "past_due"].includes(o.status) ? "pro" : "free"; save();
+  } else if (ev.type === "customer.subscription.deleted") {
+    const acc = byCustomer(o.customer);
+    if (!acc) return;
+    acc.stripe.subscription = null; acc.stripe.status = "canceled"; acc.plan = "free"; save();
+  }
 }
 
 async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
-  if (m === "GET" && (path === "/" || path === "/index.html") && INDEX_HTML) {
-    res.writeHead(200, { "content-type": "text/html; charset=utf-8", "content-length": INDEX_HTML.length, "cache-control": "no-cache", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" });
-    return res.end(INDEX_HTML);
+  if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
+  if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null });
+
+  if (m === "POST" && path === "/stripe/webhook") {
+    if (!billingOn()) throw bad(404, "not_found", "Unknown endpoint");
+    const raw = await readRaw(req);
+    if (!verifyStripeSignature(raw, req.headers["stripe-signature"])) throw bad(400, "invalid_signature", "Signature verification failed");
+    let ev;
+    try { ev = JSON.parse(raw); } catch { throw bad(400, "invalid_json", "Body must be valid JSON"); }
+    handleStripeEvent(ev);
+    return send(res, 200, { received: true });
   }
 
   if (m === "POST" && path === "/v1/accounts") {
@@ -283,7 +414,41 @@ async function route(req, res) {
     return send(res, 202, { queued: true });
   }
   if (m === "GET" && path === "/v1/webhook/deliveries") return send(res, 200, { data: acc.deliveries });
-  if (m === "GET" && path === "/v1/usage") return send(res, 200, { plan: acc.plan, month: acc.usage.month, used: acc.usage.count, limit: PLANS[acc.plan].monthly });
+  if (m === "GET" && path === "/v1/usage") return send(res, 200, { plan: acc.plan, month: acc.usage.month, used: acc.usage.count, limit: PLANS[acc.plan].monthly, billing: billingOn(), subscription_status: acc.stripe ? acc.stripe.status : null });
+
+  if (m === "POST" && path === "/v1/billing/checkout") {
+    if (!billingOn()) throw bad(503, "billing_unavailable", "Pro plan billing is not open yet");
+    if (acc.plan === "pro") throw bad(409, "already_pro", "This account is already on the Pro plan");
+    const s = await stripe("POST", "/v1/checkout/sessions", {
+      mode: "subscription", client_reference_id: acc.id,
+      line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
+      success_url: PUBLIC_URL + "/?billing=success", cancel_url: PUBLIC_URL + "/?billing=cancelled",
+      allow_promotion_codes: "true", billing_address_collection: "required",
+      ...(acc.stripe && acc.stripe.customer ? { customer: acc.stripe.customer } : { tax_id_collection: { enabled: "true" } }),
+    });
+    if (!s.url) throw bad(502, "billing_error", "The payment provider did not return a checkout link");
+    return send(res, 200, { url: s.url });
+  }
+  if (m === "POST" && path === "/v1/billing/portal") {
+    if (!billingOn()) throw bad(503, "billing_unavailable", "Pro plan billing is not open yet");
+    if (!acc.stripe || !acc.stripe.customer) throw bad(409, "no_billing", "This account has no billing history yet");
+    const s = await stripe("POST", "/v1/billing_portal/sessions", { customer: acc.stripe.customer, return_url: PUBLIC_URL + "/" });
+    if (!s.url) throw bad(502, "billing_error", "The payment provider did not return a billing link");
+    return send(res, 200, { url: s.url });
+  }
+  if (m === "DELETE" && path === "/v1/account") {
+    const b = await readBody(req);
+    if (b.confirm !== true) throw bad(400, "confirmation_required", 'Send {"confirm": true} to delete this account and all its data');
+    if (acc.stripe && acc.stripe.subscription && billingOn()) {
+      try { await stripe("DELETE", `/v1/subscriptions/${encodeURIComponent(acc.stripe.subscription)}`); }
+      catch (e) {
+        // A subscription that no longer exists (404) is already cancelled; any other failure blocks deletion so nobody keeps paying for a deleted account.
+        if (!(e.extra && e.extra.provider_status === 404)) throw bad(502, "billing_error", "Could not cancel the subscription, so the account was not deleted. Try again, or contact support.");
+      }
+    }
+    purgeAccount(acc.id);
+    return send(res, 200, { deleted: true });
+  }
   if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; save(); return send(res, 200, { cleared: true }); }
   throw bad(404, "not_found", "Unknown endpoint");
 }
@@ -294,5 +459,9 @@ const server = http.createServer((req, res) => {
     console.error(e); send(res, 500, { error: { code: "internal", message: "Unexpected error" } });
   });
 });
-if (require.main === module) server.listen(PORT, () => console.log(`DryRun API listening on :${PORT}`));
+if (require.main === module) {
+  server.listen(PORT, () => console.log(`DryRun API listening on :${PORT} (billing ${billingOn() ? "on" : "off"})`));
+  purgeInactive();
+  setInterval(purgeInactive, 24 * 3600e3).unref();
+}
 module.exports = server;

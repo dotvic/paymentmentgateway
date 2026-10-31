@@ -91,3 +91,7 @@ Free: 200 payments/month, 30 requests/minute. Pro: 20,000 payments/month, 300 re
 - Webhook delivery checks DNS before sending, but a determined attacker could still try DNS rebinding. Run the service in a network with no access to internal systems.
 - Add a privacy policy and terms. Tell customers never to send real card numbers; consider rejecting any card number that passes a Luhn check and is not in the test list.
 - Do not use Wirecard's name or logo in your branding.
+
+## Billing, Terms and Privacy
+
+See `BILLING.md` for Stripe setup, the operator details shown on `/terms` and `/privacy`, going live, and account deletion (`DELETE /v1/account`).

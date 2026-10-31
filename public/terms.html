@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Terms of service – DryRun</title>
+<style>
+:root{--paper:#eef1f7;--panel:#fff;--ink:#0f1b33;--mute:#56637f;--line:#d3dae8;--accent:#3347e8}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;--accent:#8191ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:760px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 64px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1{font-size:clamp(28px,5vw,40px);letter-spacing:-.025em;line-height:1.1;margin:24px 0 6px}
+h2{font-size:20px;margin:34px 0 6px;letter-spacing:-.01em}
+p,li{max-width:70ch}
+.meta{color:var(--mute);margin:0 0 20px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:18px 0}
+.top a{text-decoration:none;font-weight:700;color:var(--ink)}
+</style>
+</head>
+<body>
+<main>
+<p class="top"><a href="/">DryRun</a></p>
+<h1>Terms of service</h1>
+<p class="meta">Last updated {{UPDATED}}</p>
+
+<div class="box"><strong>In short:</strong> DryRun is a testing tool. It never moves real money. Use only the test card numbers we publish, keep your API key secret, and don't misuse the service.</div>
+
+<h2>1. Who we are and what these terms cover</h2>
+<p>DryRun is operated by {{OPERATOR}}, {{ADDRESS}} ("we", "us"). You can reach us at {{EMAIL}}. These terms apply to the website, the API and anything else we offer under the DryRun name (the "Service"). By creating an API key or using the Service you agree to these terms and to our <a href="/privacy">Privacy policy</a>. If you use the Service for a company, you confirm you may bind that company.</p>
+
+<h2>2. What the Service is</h2>
+<p>DryRun simulates a payment gateway so that developers can test checkout code. All payments, cards, refunds, notifications and results are simulated. No real payment is ever authorised, captured or refunded, and no money moves. DryRun is an independent project. It is not a bank, a payment institution or a payment service provider, and it is not affiliated with or endorsed by any payment provider or card scheme.</p>
+
+<h2>3. Who may use it</h2>
+<p>The Service is meant for software developers and businesses, and for professional use. You must be at least 18 years old and able to enter a binding contract.</p>
+
+<h2>4. Your account and API key</h2>
+<ul>
+<li>Creating a key creates an account. The full key is shown once. We store only a one-way fingerprint of it, so we cannot show it again or recover it. If you lose it, create a new account.</li>
+<li>Anyone who has your key can use your account. Keep it secret and do not put it in public code or in browser code that other people can read. You are responsible for what happens under your key.</li>
+<li>Tell us promptly at {{EMAIL}} if you think a key has been exposed.</li>
+</ul>
+
+<h2>5. Acceptable use</h2>
+<p>You agree not to:</p>
+<ul>
+<li>send real card numbers, real bank account details, passwords or other real personal or secret data to the Service. Use only the test values we publish;</li>
+<li>use the Service to process, test or imitate real payments in a way that deceives anyone, or to create fake receipts, records or pages meant to look genuine;</li>
+<li>point webhooks at systems you do not control, try to reach internal or private network addresses, or use webhooks to attack or overload anyone;</li>
+<li>probe, attack, overload or try to get around the rate limits, plan limits, authentication or security of the Service, or access other people's accounts or data;</li>
+<li>create accounts automatically in bulk, resell access to the Service as your own gateway, or use it for anything unlawful.</li>
+</ul>
+<p>We may limit, suspend or close accounts that break these rules or put the Service at risk, with or without notice where we think it is necessary to protect the Service or other people.</p>
+
+<h2>6. Plans and limits</h2>
+<p>The Free plan is free and has monthly and per-minute limits that are shown on the website and returned by the API. The Pro plan has higher limits and costs {{PRICE}}. Limits and features may change. If we reduce what a paid plan includes, we will tell you before the change reaches your next billing period.</p>
+
+<h2>7. Paid plans, billing and cancellation</h2>
+<ul>
+<li>Pro is a subscription that renews every month until cancelled. Payment is handled by Stripe. We do not see or store your card details.</li>
+<li>Prices are shown at checkout. Applicable taxes, such as VAT, are added where required. If you are a business in the EU, you can enter your tax ID at checkout.</li>
+<li>You can cancel at any time from the "Manage billing" button after signing in with your key. Cancellation stops future renewals. Pro stays active until the end of the period you already paid for, and the account then returns to the Free plan.</li>
+<li>Fees already paid are not refunded for unused time, unless the law says otherwise or we have agreed to it in writing. If we are unable to provide the Service for a long period, contact us and we will find a fair solution.</li>
+<li>If a payment fails, Stripe may retry it. If it stays unpaid, your account returns to the Free plan.</li>
+</ul>
+
+<h2>8. Availability and changes</h2>
+<p>We try to keep the Service running, but we do not promise it will be uninterrupted, error-free or always available. There is no service-level agreement. Test data may be lost, for example during maintenance or an outage, so do not treat it as a record you must keep. We may change, add or remove features, including the simulated behaviour and the test cards, and we may stop offering the Service. If we stop offering a paid plan, we will end billing and refund the part of the current period you can no longer use.</p>
+
+<h2>9. Your data</h2>
+<p>You own what you send to the Service. You give us permission to store and process it only as needed to run the Service for you. How we handle personal data is described in the <a href="/privacy">Privacy policy</a>. You can delete your account and its data yourself at any time with the "Delete account" option on the website or the <code>DELETE /v1/account</code> API call.</p>
+
+<h2>10. Our rights</h2>
+<p>We keep all rights in the Service, its software and its design. You get a personal, non-exclusive, non-transferable right to use the Service under these terms. The name DryRun and the website are ours. Feedback you send us may be used to improve the Service without obligation to you.</p>
+
+<h2>11. No warranty</h2>
+<p>The Service is provided "as is" and "as available". Because it is a simulation, it may behave differently from a real payment gateway, bank or card scheme. Passing tests against DryRun does not mean that your integration will work with a real provider, so always test with your real provider before going live. To the extent the law allows, we give no warranties of any kind, including merchantability, fitness for a particular purpose and non-infringement.</p>
+
+<h2>12. Liability</h2>
+<p>To the extent the law allows, we are not liable for indirect or consequential loss, lost profit, lost revenue, lost data or business interruption arising from your use of the Service. Our total liability for any claim relating to the Service is limited to the amount you paid us in the 12 months before the event that caused the claim (or EUR 100 if you only used the Free plan). Nothing in these terms limits or excludes liability that cannot be limited or excluded by law, such as liability for intent, gross negligence, injury to life, body or health, or other liability that mandatory law does not allow us to exclude.</p>
+
+<h2>13. Ending the agreement</h2>
+<p>You can stop using the Service and delete your account whenever you like. We may suspend or end your access if you break these terms, if the law requires it, or if we stop offering the Service. Sections that by their nature should continue (for example on liability and governing law) continue after the agreement ends.</p>
+
+<h2>14. Changes to these terms</h2>
+<p>We may update these terms. If a change is significant, we will show a notice on the website before it takes effect. If you keep using the Service after the new terms apply, you accept them. If you do not agree, stop using the Service and delete your account.</p>
+
+<h2>15. Governing law and contact</h2>
+<p>These terms are governed by the law of {{LAW}}, without its conflict-of-law rules, and subject to any mandatory consumer or business protections that apply to you under your local law. Courts at the place where we are established have jurisdiction, unless mandatory law gives you the right to go to another court. Questions, complaints or notices: {{EMAIL}}.</p>
+</main>
+</body>
+</html>

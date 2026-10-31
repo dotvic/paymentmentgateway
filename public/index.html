@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>DryRun – break your payment flow before customers do</title>
 <meta name="description" content="A sandbox payment gateway API. Test declines, 3D Secure, timeouts and signed webhooks with no real money and no real cards.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
 <style>
 :root{
   --paper:#eef1f7;--panel:#fff;--ink:#0f1b33;--mute:#56637f;--line:#d3dae8;
@@ -23,8 +21,8 @@
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
-body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 "Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-text-size-adjust:100%}
-.mono,code,pre,input.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+.mono,code,pre,input.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
 a{color:var(--accent)}
 .wrap{max-width:1120px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
 header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;flex-wrap:wrap}
@@ -105,7 +103,7 @@ footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--mute);fo
     <div class="card" id="left">
       <div id="signup">
         <h3>Get a free API key</h3>
-        <p class="note" style="margin:0 0 12px">200 test payments a month. No email needed.</p>
+        <p class="note" style="margin:0 0 12px">200 test payments a month. No email needed. By creating a key you agree to the <a href="/terms">Terms of service</a> and the <a href="/privacy">Privacy policy</a>.</p>
         <div id="inviteBox" class="hidden"><label for="invite">Invite token</label><input id="invite" class="mono" autocomplete="off"></div>
         <div class="actions" style="margin-top:12px"><button class="primary" id="create">Create API key</button></div>
         <details style="margin-top:14px"><summary class="note" style="cursor:pointer">I already have a key</summary>
@@ -120,6 +118,11 @@ footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--mute);fo
         <p class="note" id="keyNote"></p>
         <div class="actions" style="margin-top:8px"><button class="small" id="copyKey">Copy key</button><button class="small" id="forget">Forget key in this browser</button></div>
         <p class="usage" id="usage" style="margin:10px 0 0"></p>
+        <div class="actions" style="margin-top:10px"><button class="primary hidden" id="upgrade">Upgrade to Pro</button><button class="hidden" id="portal">Manage billing</button></div>
+        <p class="note" id="billingMsg" role="status"></p>
+        <details style="margin-top:12px"><summary class="note" style="cursor:pointer">Delete this account</summary>
+          <p class="note">Permanently deletes this key, your stored payments and your webhook. An active Pro subscription is cancelled. This cannot be undone.</p>
+          <div class="actions"><button class="small" id="deleteAcct">Delete account and data</button></div></details>
       </div>
 
       <hr style="border:0;border-top:1px solid var(--line);margin:20px 0 6px">
@@ -224,14 +227,16 @@ curl -X POST <span class="base"></span>/v1/payments/tx_.../3ds \
   <div class="plans">
     <div class="card"><h3>Free</h3><div class="note" style="margin:0">Available now</div>
       <ul><li>200 test payments a month</li><li>30 requests a minute</li><li>Signed webhooks with retries</li></ul></div>
-    <div class="card"><h3>Pro</h3><div class="note" style="margin:0">Not open yet</div>
-      <ul><li>20,000 test payments a month</li><li>300 requests a minute</li><li>For teams running automated tests</li></ul></div>
+    <div class="card"><h3>Pro</h3><div class="note" style="margin:0" id="proPrice">Not open yet</div>
+      <ul><li>20,000 test payments a month</li><li>300 requests a minute</li><li>For teams running automated tests</li></ul>
+      <p class="note hidden" id="proHint">Create a key above, then choose "Upgrade to Pro" in the key panel. Cancel any time.</p></div>
   </div>
 </section>
 
 <footer>
   <p style="margin:0 0 6px"><strong style="color:var(--ink)">DryRun is a sandbox.</strong> It never moves money. Do not enter real card numbers, only the test cards above.</p>
-  <p style="margin:0">DryRun is an independent project and is not affiliated with any payment provider.</p>
+  <p style="margin:0 0 6px">DryRun is an independent project and is not affiliated with any payment provider.</p>
+  <p style="margin:0"><a href="/terms">Terms of service</a> &nbsp; <a href="/privacy">Privacy policy</a></p>
 </footer>
 </div>
 
@@ -294,6 +299,7 @@ function renderSession() {
     $("#keyShow").textContent = keyIsNew ? key : key.slice(0, 12) + "..." + key.slice(-4);
     $("#keyNote").textContent = keyIsNew ? "Copy it now. It is shown in full only once, and also saved in this browser so you can keep testing." : "Saved in this browser. The full key is not shown again.";
   }
+  renderBilling();
 }
 function setKey(k, isNew) { key = k; keyIsNew = !!isNew; try { localStorage.setItem("dryrun_key", k); } catch (e) {} renderSession(); refreshAll(); }
 
@@ -418,10 +424,50 @@ $("#ledger").addEventListener("click", async function (e) {
   refreshAll();
 });
 
+var CONFIG = { billing: false, pro_price: null }, PLAN = "free";
 async function refreshUsage() {
   var r = await api("GET", "/v1/usage");
-  if (r.status === 200) $("#usage").textContent = r.body.used + " of " + r.body.limit + " test payments used this month (" + r.body.plan + " plan).";
+  if (r.status === 200) { PLAN = r.body.plan; $("#usage").textContent = r.body.used + " of " + r.body.limit + " test payments used this month (" + r.body.plan + " plan)."; }
   else if (r.status === 401) { $("#usage").textContent = "This key is no longer valid. Create a new one."; }
+  renderBilling();
+}
+
+// ---------- billing ----------
+function billingMsg(text, isErr) { var el = $("#billingMsg"); el.textContent = text || ""; el.className = isErr ? "err" : "note"; }
+function renderBilling() {
+  var on = !!key && CONFIG.billing;
+  $("#upgrade").classList.toggle("hidden", !(on && PLAN !== "pro"));
+  $("#portal").classList.toggle("hidden", !(on && PLAN === "pro"));
+  $("#proPrice").textContent = CONFIG.billing ? (CONFIG.pro_price || "Available now") : "Not open yet";
+  $("#proHint").classList.toggle("hidden", !CONFIG.billing || !!key);
+}
+async function goBilling(path) {
+  billingMsg("Opening secure checkout...");
+  try {
+    var r = await api("POST", path);
+    if (r.status === 200 && r.body && /^https:\/\//.test(r.body.url)) { location.href = r.body.url; return; }
+    billingMsg(errMsg(r), true);
+  } catch (e) { billingMsg("Could not reach the server.", true); }
+}
+$("#upgrade").onclick = function () { goBilling("/v1/billing/checkout"); };
+$("#portal").onclick = function () { goBilling("/v1/billing/portal"); };
+$("#deleteAcct").onclick = async function () {
+  if (!confirm("Delete this account, its API key, payments and webhook? An active Pro subscription is cancelled. This cannot be undone.")) return;
+  var r = await api("DELETE", "/v1/account", { confirm: true });
+  if (r.status === 200) {
+    key = null; keyIsNew = false; PLAN = "free";
+    try { localStorage.removeItem("dryrun_key"); } catch (e) {}
+    renderSession(); renderBilling(); $("#ledger").innerHTML = "";
+    term([{ title: "Account deleted", json: { deleted: true } }]);
+  } else billingMsg(errMsg(r), true);
+};
+async function waitForPro() {
+  for (var i = 0; i < 10; i++) {
+    await refreshUsage();
+    if (PLAN === "pro") { billingMsg("You are on the Pro plan. Thank you."); return; }
+    await new Promise(function (r) { setTimeout(r, 2000); });
+  }
+  billingMsg("Payment received. Pro switches on within a minute; reload the page to check.");
 }
 
 // ---------- webhooks ----------
@@ -461,12 +507,17 @@ $("#method").onchange = onMethod;
 onMethod();
 Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });
 renderSession();
+fetch("/v1/config").then(function (r) { return r.json(); }).then(function (c) { CONFIG = c; renderBilling(); }).catch(function () {});
 if (key) {
   api("GET", "/v1/usage").then(function (r) {
     if (r.status === 401) { key = null; try { localStorage.removeItem("dryrun_key"); } catch (e) {} renderSession(); }
     else refreshAll();
   });
 }
+var billingParam = new URLSearchParams(location.search).get("billing");
+if (billingParam) { try { history.replaceState(null, "", location.pathname); } catch (e) {} }
+if (billingParam === "success" && key) { billingMsg("Payment received. Switching on Pro..."); waitForPro(); }
+if (billingParam === "cancelled") billingMsg("Checkout was cancelled. You were not charged.");
 </script>
 </body>
 </html>

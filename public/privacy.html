@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Privacy policy – DryRun</title>
+<style>
+:root{--paper:#eef1f7;--panel:#fff;--ink:#0f1b33;--mute:#56637f;--line:#d3dae8;--accent:#3347e8}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;--accent:#8191ff}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+main{max-width:820px;margin:0 auto;padding:24px clamp(16px,4vw,32px) 64px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1{font-size:clamp(28px,5vw,40px);letter-spacing:-.025em;line-height:1.1;margin:24px 0 6px}
+h2{font-size:20px;margin:34px 0 6px;letter-spacing:-.01em}
+p,li{max-width:70ch}
+.meta{color:var(--mute);margin:0 0 20px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:18px 0}
+.top a{text-decoration:none;font-weight:700;color:var(--ink)}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:15px}
+th,td{text-align:left;vertical-align:top;padding:10px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--mute);font-weight:500;font-size:14px;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+</style>
+</head>
+<body>
+<main>
+<p class="top"><a href="/">DryRun</a></p>
+<h1>Privacy policy</h1>
+<p class="meta">Last updated {{UPDATED}}</p>
+
+<div class="box"><strong>In short:</strong> we collect very little. There is no email or name needed to use the Free plan, no cookies and no tracking. We store your test payments and webhook settings to run the service, and you can delete everything yourself at any time.</div>
+
+<h2>1. Who is responsible</h2>
+<p>The controller of your personal data is {{OPERATOR}}, {{ADDRESS}}. Contact for any privacy question or request: {{EMAIL}}.</p>
+
+<h2>2. What we process and why</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Data</th><th>Why</th><th>Legal basis (GDPR)</th></tr></thead>
+<tbody>
+<tr><td><strong>Account data.</strong> A random account ID, a one-way fingerprint (hash) of your API key, your plan, monthly usage count, and the dates the account was created and last used. We never store the key itself.</td><td>To give you an account and enforce plan limits.</td><td>Contract (Art. 6(1)(b))</td></tr>
+<tr><td><strong>Test payment data you send.</strong> Amounts, currency, method, transaction types, your request IDs, results and status codes, and the last four digits of any test card number you send. The full card number is used only to decide the simulated outcome and is not stored.</td><td>To run the simulation and show you your transactions.</td><td>Contract (Art. 6(1)(b))</td></tr>
+<tr><td><strong>Webhook settings and logs.</strong> The webhook URL you register, the secret used to sign events, and a log of recent delivery attempts (event type, time, response status or error).</td><td>To send you signed notifications and show you whether they arrived.</td><td>Contract (Art. 6(1)(b))</td></tr>
+<tr><td><strong>IP address.</strong> Held only in the server's memory for a short time to limit sign-ups and abuse. It is not written to our database. Our hosting provider may keep it in its network logs.</td><td>To keep the service secure and available.</td><td>Legitimate interests (Art. 6(1)(f))</td></tr>
+<tr><td><strong>Billing data (Pro plan only).</strong> Payment is handled by Stripe, which collects your payment details and billing information and issues invoices. We receive and store only a Stripe customer ID, a subscription ID and the subscription status. We do not see or store your card details or your email.</td><td>To sell and manage the Pro subscription, and to meet accounting and tax duties.</td><td>Contract (Art. 6(1)(b)); legal obligation (Art. 6(1)(c))</td></tr>
+<tr><td><strong>Messages you send us.</strong> If you email us, we process the message and your address.</td><td>To answer you.</td><td>Legitimate interests (Art. 6(1)(f))</td></tr>
+</tbody></table></div>
+<p>You are not required by law to give us any of this, but without it we cannot provide the service. We do not make decisions about you by automated means that have legal or similarly significant effects.</p>
+<p><strong>Please do not send real personal data or real card numbers</strong> to the service. It is a test tool, and the <a href="/terms">terms</a> forbid it.</p>
+
+<h2>3. Cookies, browser storage and third parties on the site</h2>
+<p>The website sets no cookies and uses no analytics, advertising or tracking tools. It loads no scripts, fonts or images from other sites. To keep you signed in, the page saves your API key in your browser's local storage on your own device. You can remove it with "Forget key in this browser" or by clearing your browser's site data. That storage is strictly necessary for the page to work after a reload, and it is never sent to anyone except to this service as your API key.</p>
+
+<h2>4. Who receives data</h2>
+<ul>
+<li><strong>Fly.io, Inc.</strong>, our hosting provider. The service and its data volume run in Amsterdam, in the Netherlands (EU). Fly.io may process technical data such as IP addresses in network logs.</li>
+<li><strong>Stripe</strong> (Stripe Payments Europe, Ltd. and affiliates), only if you subscribe to Pro. Stripe is an independent controller for the payment and identity data it collects and has its own <a href="https://stripe.com/privacy" rel="noopener noreferrer">privacy policy</a>.</li>
+<li><strong>The webhook URL you register</strong> receives the notification events about your own test payments. You choose that destination.</li>
+<li>Authorities or advisers, where the law requires it or where we need to protect our legal rights.</li>
+</ul>
+<p>We do not sell personal data.</p>
+
+<h2>5. Transfers outside the EU/EEA</h2>
+<p>Our data is stored in the EU. Fly.io, Inc. and Stripe are or have affiliates outside the EU/EEA (for example in the United States), so access from there is possible. Where this happens, it relies on safeguards such as the EU-US Data Privacy Framework or the European Commission's standard contractual clauses. You can ask us for details at {{EMAIL}}.</p>
+
+<h2>6. How long we keep data</h2>
+<ul>
+<li>Account, payment and webhook data: until you delete your account.</li>
+<li>Test payments: we keep at most the latest 500 per account, and older ones are dropped automatically.</li>
+<li>Free accounts that have not been used for {{DAYS}} days are deleted automatically.</li>
+<li>Pro accounts: while the subscription is active.</li>
+<li>Invoices and payment records are kept by Stripe and by us for as long as tax and accounting law requires (often several years). Deleting your DryRun account does not delete these.</li>
+<li>Hosting snapshots and backups can keep deleted data for a few days before it is overwritten.</li>
+</ul>
+
+<h2>7. Your rights</h2>
+<p>You have the right to ask for access to your data, correction, deletion, restriction of processing and a portable copy. You can object to processing that is based on our legitimate interests. Where processing is based on consent, you can withdraw it at any time (we do not rely on consent for the core service).</p>
+<ul>
+<li><strong>Delete everything yourself:</strong> sign in with your key on the website and choose "Delete account", or call <code>DELETE /v1/account</code> with <code>{"confirm": true}</code>. An active Pro subscription is cancelled at the same time.</li>
+<li><strong>Your data:</strong> <code>GET /v1/payments</code>, <code>GET /v1/webhook</code> and <code>GET /v1/usage</code> return what we hold about your account in a machine-readable format.</li>
+<li>For anything else, write to {{EMAIL}}. We answer within one month.</li>
+</ul>
+<p>Because we do not store names or email addresses on the Free plan, we may not be able to link a request to you unless you prove you control the API key. You also have the right to complain to your national data protection authority, for example the supervisory authority in the EU country where you live or work.</p>
+
+<h2>8. Security</h2>
+<p>All traffic uses HTTPS. API keys are stored only as hashes. Access to the server is restricted to the operator. No system is perfectly secure, so please do not store anything sensitive in the service. If a breach affects your personal data, we will notify you and the authorities as the law requires.</p>
+
+<h2>9. Children</h2>
+<p>The service is for developers and businesses and is not meant for anyone under 18. We do not knowingly collect data from children.</p>
+
+<h2>10. Changes</h2>
+<p>If we change how we handle personal data, we will update this page and the date at the top. For significant changes, we will also show a notice on the website.</p>
+</main>
+</body>
+</html>
