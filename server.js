@@ -1,6 +1,7 @@
 "use strict";
 // DryRun: hosted payment-gateway sandbox API. Zero dependencies, Node 18+.
 const http = require("http"), crypto = require("crypto"), fs = require("fs"), dns = require("dns").promises, net = require("net");
+const TDS = require("./tds");
 
 const PORT = +process.env.PORT || 8080;
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
@@ -68,8 +69,15 @@ const CURRENCIES = ["EUR", "USD", "GBP"];
 const SCENARIOS = ["auto", "approve", "decline", "timeout", "3ds"];
 const CARDS = {
   "4111111111111111": "approve", "4000000000000002": "decline", "4000000000009995": "nsf",
-  "4000000000000069": "expired", "4000000000003220": "3ds", "4000000000000408": "timeout",
+  "4000000000000069": "expired", "4000000000000408": "timeout",
 };
+// 3-D Secure test cards: outcome "3ds" is the challenge flow, "3ds_Y" / "3ds_N" / "3ds_A" / "3ds_U" / "3ds_R" end without a challenge.
+for (const [num, status] of Object.entries(TDS.CARDS)) CARDS[num] = status === "C" ? "3ds" : "3ds_" + status;
+const MAX_3DS_LOGS = 20;
+function trimLogs(acc) {
+  let kept = 0;
+  for (const p of acc.payments) if (p._tds && ++kept > MAX_3DS_LOGS) delete p._tds;
+}
 const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-4051", "Insufficient funds"], expired: ["SBX-4054", "Card expired"] };
 
 // ---------- storage ----------
@@ -185,7 +193,7 @@ function createPayment(acc, b) {
   if (!TYPES[b.method].includes(b.transaction_type)) throw bad(400, "invalid_request", `transaction_type for ${b.method} must be one of ${TYPES[b.method].join(", ")}`);
   const scenario = b.scenario || "auto";
   if (!SCENARIOS.includes(scenario)) throw bad(400, "invalid_request", `scenario must be one of ${SCENARIOS.join(", ")}`);
-  if (scenario === "3ds" && b.method !== "card") throw bad(400, "invalid_request", "3ds scenario is only available for card payments");
+  if (scenario === "3ds" && (b.method !== "card" || !["purchase", "authorization"].includes(b.transaction_type))) throw bad(400, "invalid_request", "3ds scenario is only available for card purchase and authorization");
 
   const type = b.transaction_type;
   let amount = Number(b.amount), parent = null;
@@ -225,10 +233,18 @@ function createPayment(acc, b) {
     save();
     return { status: 504, body: { error: { code: "SBX-5040", message: "Gateway timeout. Outcome unknown: wait for the webhook or poll GET /v1/payments/{id} before retrying.", transaction_id: p.id } } };
   }
-  if (outcome === "3ds") {
-    p._3ds = true; p.status = { code: "SBX-2020", message: "Waiting for 3D Secure" };
-    save();
-    return { status: 202, body: { ...pub(p), three_ds: { required: true, confirm_url: `/v1/payments/${p.id}/3ds` } } };
+  if (outcome === "3ds" || outcome.startsWith("3ds_")) {
+    const status = outcome === "3ds" ? "C" : outcome.slice(4);
+    const tr = TDS.begin({ amount, currency, last4: card.slice(-4) || "0000" }, status);
+    p._tds = tr; p.authentication = TDS.summary(tr);
+    trimLogs(acc);
+    if (status === "C") {
+      p._3ds = true; p.status = { code: "SBX-2020", message: "Waiting for 3D Secure" };
+      save();
+      return { status: 202, body: { ...pub(p), three_ds: { required: true, confirm_url: `/v1/payments/${p.id}/3ds`, log_url: `/v1/payments/${p.id}/3ds-log` } } };
+    }
+    settle(acc, p, tr.payment.ok, tr.payment.code, tr.payment.message);
+    return { status: 201, body: pub(p) };
   }
   const f = FAILS[outcome] || FAILS.decline;
   settle(acc, p, false, f[0], f[1]);
@@ -395,9 +411,18 @@ async function route(req, res) {
     if (!p) throw bad(404, "not_found", "Transaction not found");
     if (!p._3ds) throw bad(409, "invalid_state", "Transaction is not waiting for 3D Secure");
     if (!["approve", "fail"].includes(b.result)) throw bad(400, "invalid_request", "result must be 'approve' or 'fail'");
-    if (b.result === "approve") settle(acc, p, true, "SBX-2000", "Approved after 3D Secure");
+    if (p._tds && TDS.finishChallenge(p._tds, b.result === "approve")) {
+      p.authentication = TDS.summary(p._tds);
+      settle(acc, p, p._tds.payment.ok, p._tds.payment.code, p._tds.payment.message);
+    } else if (b.result === "approve") settle(acc, p, true, "SBX-2000", "Approved after 3D Secure");
     else settle(acc, p, false, "SBX-4030", "3D Secure authentication failed");
     return send(res, 200, pub(p));
+  }
+  if (m === "GET" && (mt = path.match(/^\/v1\/payments\/(tx_[a-f0-9]+)\/3ds-log$/))) {
+    const p = acc.payments.find((x) => x.id === mt[1]);
+    if (!p) throw bad(404, "not_found", "Transaction not found");
+    if (!p._tds) throw bad(404, "no_log", p.authentication ? `The 3-D Secure log is no longer stored (only the latest ${MAX_3DS_LOGS} are kept)` : "This payment did not use 3-D Secure. Use a 3-D Secure test card to get a log");
+    return send(res, 200, TDS.publicLog(p._tds, p.id));
   }
   if (path === "/v1/webhook") {
     if (m === "GET") return send(res, 200, acc.webhook || { url: null });

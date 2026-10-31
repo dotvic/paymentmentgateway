@@ -37,8 +37,9 @@ h3{font-size:16px;margin:0 0 10px}
 section.block{padding:clamp(28px,5vw,52px) 0;border-top:1px solid var(--line)}
 .sub{color:var(--mute);margin:0 0 20px;max-width:64ch}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:20px}
-.console{display:grid;grid-template-columns:minmax(300px,420px) 1fr;gap:16px;align-items:start}
-@media(max-width:880px){.console{grid-template-columns:1fr}}
+.console{display:grid;grid-template-columns:minmax(300px,420px) minmax(0,1fr);gap:16px;align-items:start}
+@media(max-width:880px){.console{grid-template-columns:minmax(0,1fr)}}
+.console>*{min-width:0}
 label,.lbl{display:block;font-size:13px;color:var(--mute);margin:12px 0 5px}
 input,select,button,textarea{font:inherit;color:inherit}
 input,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
@@ -54,6 +55,8 @@ button.small{font-size:13px;padding:3px 9px}
 .err{color:var(--bad);font-size:14px;margin:10px 0 0;min-height:1.2em}
 .keybox{background:var(--paper);border:1px dashed var(--line);border-radius:8px;padding:10px 12px;word-break:break-all;font-size:13px}
 fieldset{border:0;margin:0;padding:0}
+fieldset{min-width:0;border:0;padding:0;margin:0}
+.chips{position:relative}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
 .chips input{position:absolute;opacity:0;width:1px;height:1px}
 .chips label{margin:0;padding:6px 11px;border:1px solid var(--line);border-radius:99px;cursor:pointer;color:var(--ink);font-size:14px}
@@ -81,6 +84,36 @@ pre.code{background:var(--term);color:var(--term-ink);border-radius:var(--r);pad
 .plans ul{padding-left:18px;margin:10px 0 0;color:var(--mute)}
 .usage{font-size:14px;color:var(--mute)}
 footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--mute);font-size:14px}
+input[type=checkbox]{width:auto}
+.check{display:flex;gap:8px;align-items:center;margin:8px 0 0;color:var(--ink);font-size:14px}
+.tl{list-style:none;margin:16px 0 0;padding:0 0 0 14px;border-left:2px solid var(--line)}
+.tl-phase{margin:18px 0 8px -14px;padding-left:14px;font-size:14px;font-weight:600;color:var(--mute)}
+.tl-phase:first-child{margin-top:0}
+.tl-item{position:relative;padding:0 0 18px 16px}
+.tl-item::before{content:"";position:absolute;left:-20px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--panel);border:2px solid var(--accent)}
+.tl-item.k-decision::before{border-color:var(--wait)}
+.tl-item.k-info::before{border-color:var(--mute)}
+.tl-item.k-stop::before{border-color:var(--bad)}
+.tl-head{display:flex;flex-wrap:wrap;gap:2px 12px;align-items:baseline}
+.msg{font-weight:600;font-size:14px}
+.lane{color:var(--mute);font-size:13px}
+.ms{color:var(--mute);font-size:12px;margin-left:auto}
+.tl-item h4{margin:4px 0;font-size:15px}
+.explain{margin:0 0 8px;font-size:14.5px;max-width:68ch}
+#labOut.no-explain .explain{display:none}
+details.f summary{cursor:pointer;color:var(--mute);font-size:13px}
+table.fields{font-size:13px;margin-top:6px}
+table.fields td,table.fields th{white-space:normal;word-break:break-word;vertical-align:top;padding:5px 8px}
+table.fields td:first-child{white-space:nowrap;word-break:normal}
+.sumgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.sumgrid>div{background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.sumgrid .k{display:block;font-size:12px;color:var(--mute)}
+.sumgrid .v{font-weight:600;word-break:break-all}
+.take{margin:12px 0 0;max-width:68ch}
+.chal{border:1px solid var(--wait);border-radius:var(--r);padding:14px;margin-bottom:12px}
+.chal p{margin:4px 0 10px}
+.tl-item.new{animation:none}
+@media(prefers-reduced-motion:no-preference){.tl-item.new{animation:newstep 1.2s ease-out}@keyframes newstep{from{background:var(--paper)}}}
 .hidden{display:none!important}
 .sr{position:absolute;left:-9999px}
 @media(prefers-reduced-motion:no-preference){.flash{animation:fl .6s ease-out}@keyframes fl{from{box-shadow:0 0 0 3px var(--accent)}}}
@@ -90,7 +123,7 @@ footer{border-top:1px solid var(--line);padding:28px 0 44px;color:var(--mute);fo
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/">DryRun</a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#cards">Test cards</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -148,6 +181,47 @@ exactly like the list under "Test cards" below.</pre>
   </div>
 </section>
 
+<section class="block" id="lab">
+  <h2>3-D Secure lab</h2>
+  <p class="sub">Run a 3-D Secure authentication and read the whole message log, step by step: who talks to whom, what each message contains, and what it means for you as a merchant. This is a teaching simulation. Field names follow the EMV 3DS 2.x specification, but the messages are simplified and every value is made up.</p>
+  <div class="console">
+    <div class="card">
+      <h3>Choose what the bank does</h3>
+      <fieldset id="labForm" disabled>
+        <div class="chips" role="radiogroup" aria-label="What the bank does" id="labChips"></div>
+        <p class="note" id="labDesc" style="min-height:4.5em"></p>
+        <div class="row"><div><label for="labAmount">Amount</label><input id="labAmount" type="number" min="0.01" step="0.01" value="89.00"></div>
+        <div><label for="labCurrency">Currency</label><select id="labCurrency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
+        <p class="note">Test card used: <span class="mono" id="labCard"></span></p>
+        <div class="actions"><button class="primary" id="labRun">Run authentication</button></div>
+        <p class="err" id="labErr" role="alert"></p>
+      </fieldset>
+      <p class="note" id="labLocked">Create or paste an API key above to run the lab.</p>
+      <hr style="border:0;border-top:1px solid var(--line);margin:16px 0 4px">
+      <label class="check"><input type="checkbox" id="labExplain" checked> Explain each step</label>
+      <label class="check"><input type="checkbox" id="labFields"> Show every field of every message</label>
+    </div>
+    <div class="card" id="labOut" aria-live="polite"><p class="note" style="margin:0">Pick an outcome and run it. The message log appears here, and your earlier 3-D Secure payments also have a "3DS log" button in the payments table.</p></div>
+  </div>
+  <details class="card" style="margin-top:16px"><summary style="cursor:pointer;font-weight:600">Glossary</summary>
+    <div class="tablewrap"><table class="fields">
+      <tbody>
+      <tr><td><strong>3DS Server</strong></td><td>Software run by the merchant or its provider. It starts the authentication and talks to the card network.</td></tr>
+      <tr><td><strong>Directory Server (DS)</strong></td><td>The card network's switch (Visa, Mastercard and others). It finds the right issuer for a card and passes messages on.</td></tr>
+      <tr><td><strong>ACS</strong></td><td>Access Control Server, the issuer's system. It judges the risk and runs the challenge.</td></tr>
+      <tr><td><strong>Issuer / acquirer</strong></td><td>The issuer is the cardholder's bank. The acquirer is the merchant's bank, which sends the payment for authorisation.</td></tr>
+      <tr><td><strong>AReq / ARes</strong></td><td>Authentication Request and Response. The 3DS Server asks the issuer to authenticate, the issuer answers with a transStatus.</td></tr>
+      <tr><td><strong>CReq / CRes</strong></td><td>Challenge Request and Response, exchanged between the customer's browser and the ACS during a challenge.</td></tr>
+      <tr><td><strong>RReq / RRes</strong></td><td>Results Request and Response. After a challenge, the ACS reports the final outcome to the 3DS Server. This is the message to trust.</td></tr>
+      <tr><td><strong>Frictionless / challenge</strong></td><td>Frictionless: the issuer approves in the background. Challenge: the customer must prove who they are, for example with a code.</td></tr>
+      <tr><td><strong>transStatus</strong></td><td>Y authenticated. N denied. U could not be performed. A attempt recorded. C challenge required. R rejected by the issuer.</td></tr>
+      <tr><td><strong>ECI</strong></td><td>Tells the networks how the cardholder was authenticated. Visa: 05 authenticated, 06 attempted, 07 not authenticated. Mastercard: 02, 01, 00.</td></tr>
+      <tr><td><strong>CAVV / AAV</strong></td><td>The cryptographic proof of authentication (Visa calls it CAVV, Mastercard AAV). It travels with the authorisation request.</td></tr>
+      <tr><td><strong>Liability shift</strong></td><td>When a payment is properly authenticated, responsibility for "the cardholder did not make this purchase" fraud chargebacks moves from the merchant to the issuer.</td></tr>
+      </tbody></table></div>
+  </details>
+</section>
+
 <section class="block hidden" id="dash">
   <h2>Your payments</h2>
   <p class="sub">Capture, refund or void a payment to try follow-up transactions. Amounts are checked against the parent payment.</p>
@@ -194,7 +268,12 @@ function verify(rawBody, header, secret) {
       <tr><td class="mono">4000 0000 0000 0002</td><td>Declined by issuer</td><td class="mono">SBX-4002</td></tr>
       <tr><td class="mono">4000 0000 0000 9995</td><td>Insufficient funds</td><td class="mono">SBX-4051</td></tr>
       <tr><td class="mono">4000 0000 0000 0069</td><td>Card expired</td><td class="mono">SBX-4054</td></tr>
+      <tr><td class="mono">4000 0000 0000 3000</td><td>3D Secure, frictionless approval (transStatus Y)</td><td class="mono">SBX-2000</td></tr>
       <tr><td class="mono">4000 0000 0000 3220</td><td>3D Secure challenge (HTTP 202, then confirm)</td><td class="mono">SBX-2020</td></tr>
+      <tr><td class="mono">4000 0000 0000 3238</td><td>3D Secure, frictionless denial (transStatus N)</td><td class="mono">SBX-4030</td></tr>
+      <tr><td class="mono">4000 0000 0000 3253</td><td>3D Secure, attempt recorded (transStatus A)</td><td class="mono">SBX-2000</td></tr>
+      <tr><td class="mono">4000 0000 0000 3261</td><td>3D Secure unavailable (transStatus U), approved without liability shift</td><td class="mono">SBX-2002</td></tr>
+      <tr><td class="mono">4000 0000 0000 3279</td><td>3D Secure rejected by the issuer (transStatus R)</td><td class="mono">SBX-4032</td></tr>
       <tr><td class="mono">4000 0000 0000 0408</td><td>Gateway timeout (HTTP 504, resolves by webhook after about 3 s)</td><td class="mono">SBX-5040</td></tr>
     </tbody></table></div>
 </section>
@@ -291,6 +370,9 @@ function renderSession() {
   $("#signup").classList.toggle("hidden", on);
   $("#session").classList.toggle("hidden", !on);
   $("#form").disabled = !on;
+  $("#labForm").disabled = !on;
+  $("#labLocked").classList.toggle("hidden", on);
+  if (!on) { LABLOG = null; LABID = null; $("#labOut").innerHTML = LAB_EMPTY; }
   $("#dash").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
   $("#whForm").classList.toggle("hidden", !on);
@@ -409,10 +491,12 @@ async function refreshLedger() {
   LAST = r.body.data;
   $("#ledger").innerHTML = LAST.length ? "<table><thead><tr><th>ID</th><th>Type</th><th>Amount</th><th>State</th><th>Detail</th><th>Actions</th></tr></thead><tbody>" + LAST.map(function (p) {
     var acts = actionsFor(p).map(function (a) { return '<button class="small" data-act="' + a[0] + '" data-id="' + esc(p.id) + '" data-amt="' + a[2] + '">' + a[1] + "</button> "; }).join("");
-    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + "</td></tr>";
+    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + (p.authentication ? '<button class="small" data-lab="' + esc(p.id) + '">3DS log</button>' : "") + "</td></tr>";
   }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No payments yet. Send one above.</p>';
 }
 $("#ledger").addEventListener("click", async function (e) {
+  var lb = e.target.closest("button[data-lab]");
+  if (lb) { await loadLab(lb.dataset.lab, 0); $("#lab").scrollIntoView({ behavior: "smooth" }); return; }
   var b = e.target.closest("button[data-act]");
   if (!b) return;
   var p = LAST.filter(function (x) { return x.id === b.dataset.id; })[0];
@@ -499,9 +583,128 @@ $("#whPing").onclick = async function () {
 $("#whDel").onclick = async function () { await api("DELETE", "/v1/webhook"); refreshWebhook(); };
 $("#whRefresh").onclick = refreshWebhook;
 
-function refreshAll() { if (!key) return; refreshLedger(); refreshUsage(); refreshWebhook(); }
+var refreshTimer = null;
+// Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
+function refreshAll() {
+  if (!key || refreshTimer) return;
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); } }, 3000);
+}
+
+// ---------- 3-D Secure lab ----------
+var LAB = [
+  { id: "Y", label: "Frictionless approval", card: "4000000000003000", desc: "The bank's risk engine trusts the payment, so the customer is never interrupted. Most real 3-D Secure payments end like this." },
+  { id: "C", label: "Challenge", card: "4000000000003220", desc: "The bank wants proof. The customer is sent to their bank's page to enter a code, and you choose what they do." },
+  { id: "N", label: "Denied", card: "4000000000003238", desc: "The bank decides the risk is too high and denies the authentication without asking the customer anything." },
+  { id: "A", label: "Attempted", card: "4000000000003253", desc: "The cardholder is not enrolled, so full authentication is impossible. The card network records an attempt and issues proof of it." },
+  { id: "U", label: "Unavailable", card: "4000000000003261", desc: "The bank's system could not answer. You may still take the payment, but without protection against fraud chargebacks." },
+  { id: "R", label: "Rejected", card: "4000000000003279", desc: "The bank refuses outright, for example because the card is reported stolen. You must not authorise or retry." }
+];
+var PHASES = { setup: "Setup", authentication: "Authentication request", challenge: "Cardholder challenge", authorization: "Authorization" };
+var STATUS_CLASS = { Y: "success", A: "success", N: "failed", R: "failed", U: "pending", C: "pending" };
+var AUTH_TEXT = { approved: "Approved", approved_without_liability_shift: "Approved, no liability shift", not_attempted: "Not attempted" };
+var LAB_EMPTY = '<p class="note" style="margin:0">Pick an outcome and run it. The message log appears here, and your earlier 3-D Secure payments also have a "3DS log" button in the payments table.</p>';
+var LABID = null, LABLOG = null;
+
+function labSel() { return LAB.filter(function (s) { return s.id === document.querySelector('input[name="lab"]:checked').value; })[0]; }
+function onLab() { var s = labSel(); $("#labDesc").textContent = s.desc; $("#labCard").textContent = s.card.replace(/(\d{4})(?=\d)/g, "$1 "); }
+function buildLab() {
+  $("#labChips").innerHTML = LAB.map(function (s, i) {
+    return '<input type="radio" name="lab" id="lab_' + s.id + '" value="' + s.id + '"' + (i === 0 ? " checked" : "") + '><label for="lab_' + s.id + '">' + esc(s.label) + "</label>";
+  }).join("");
+  onLab();
+}
+var fv = function (v) { return v === null ? "null" : typeof v === "object" ? JSON.stringify(v) : String(v); };
+function fieldsHtml(s) {
+  var keys = Object.keys(s.payload || {});
+  if (!keys.length) return "";
+  var notes = s.notes || {};
+  return '<details class="f"' + ($("#labFields").checked ? " open" : "") + "><summary>Fields (" + keys.length + ')</summary><div class="tablewrap"><table class="fields"><tbody>' + keys.map(function (k) {
+    return '<tr><td class="mono">' + esc(k) + '</td><td class="mono">' + esc(fv(s.payload[k])) + "</td><td>" + esc(notes[k] || "") + "</td></tr>";
+  }).join("") + "</tbody></table></div></details>";
+}
+function stepHtml(s, isNew) {
+  var lane = s.from === s.to ? s.from : s.from + " → " + s.to;
+  return '<li class="tl-item k-' + esc(s.kind) + (isNew ? " new" : "") + '"><div class="tl-head"><span class="msg mono">' + esc(s.name) + '</span><span class="lane">' + esc(lane) + '</span><span class="ms mono">+' + s.offset_ms + " ms</span></div><h4>" + esc(s.title) + '</h4><p class="explain">' + esc(s.explain) + "</p>" + fieldsHtml(s) + "</li>";
+}
+function renderLab(prev) {
+  var L = LABLOG, h = "", cell = function (k, v) { return '<div><span class="k">' + k + '</span><span class="v">' + v + "</span></div>"; };
+  if (!L.complete) {
+    h += '<div class="chal"><strong>The customer is on their bank\'s page.</strong><p>The bank has asked for a one-time code. Choose what the customer does:</p><div class="actions" style="margin:0"><button class="primary" data-chal="approve">Enter the correct code</button><button data-chal="fail">Enter a wrong code</button></div></div>';
+  } else {
+    var r = L.result;
+    h += '<div class="sumgrid">' + cell("transStatus", '<span class="badge ' + STATUS_CLASS[r.trans_status] + '">' + esc(r.trans_status) + "</span> " + esc(r.trans_status_label)) +
+      cell("ECI", esc(r.eci)) + cell("Authentication value", r.authentication_value ? '<span class="mono">' + esc(r.authentication_value) + "</span>" : "none") +
+      cell("Liability shift", r.liability_shift ? "Yes, moves to the issuer" : "No, you keep it") + cell("Authorization", esc(AUTH_TEXT[r.authorization] || r.authorization)) + "</div>" +
+      '<p class="take"><strong>What it means for you:</strong> ' + esc(r.merchant_takeaway) + "</p>";
+  }
+  var phase = null;
+  h += '<ol class="tl">' + L.steps.map(function (s, i) {
+    var ph = "";
+    if (s.phase !== phase) { phase = s.phase; ph = '<li class="tl-phase">' + esc(PHASES[phase] || phase) + "</li>"; }
+    return ph + stepHtml(s, prev > 0 && i >= prev);
+  }).join("") + "</ol>";
+  h += '<div class="actions"><button class="small" data-lab-copy="1">Copy log as JSON</button><button class="small" data-lab-dl="1">Download log</button></div>';
+  h += '<p class="note">Fetch the same log from your own code:</p><pre class="code mono">' + esc("curl " + location.origin + "/v1/payments/" + LABID + '/3ds-log \\\n  -H "Authorization: Bearer $KEY"') + "</pre>";
+  var out = $("#labOut");
+  out.innerHTML = h;
+  out.classList.toggle("no-explain", !$("#labExplain").checked);
+  if (prev > 0) {
+    var n = out.querySelector(".tl-item.new");
+    if (n) n.scrollIntoView({ block: "nearest", behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  }
+}
+async function loadLab(id, prev) {
+  var r = await api("GET", "/v1/payments/" + id + "/3ds-log");
+  if (r.status !== 200) { $("#labOut").innerHTML = '<p class="err" style="margin:0">' + esc(errMsg(r)) + "</p>"; return; }
+  LABID = id; LABLOG = r.body; renderLab(prev || 0);
+}
+$("#labChips").addEventListener("change", onLab);
+$("#labExplain").onchange = function () { $("#labOut").classList.toggle("no-explain", !this.checked); };
+$("#labFields").onchange = function () {
+  var on = this.checked;
+  Array.prototype.forEach.call(document.querySelectorAll("#labOut details.f"), function (d) { d.open = on; });
+};
+$("#labRun").onclick = async function () {
+  $("#labErr").textContent = "";
+  var amount = parseFloat($("#labAmount").value);
+  if (!(amount > 0)) { $("#labErr").textContent = "Enter an amount greater than 0."; return; }
+  var req = bodyFor({ method: "card", transaction_type: "purchase", amount: amount, currency: $("#labCurrency").value, card_number: labSel().card });
+  $("#labRun").disabled = true;
+  try {
+    var r = await api("POST", "/v1/payments", req);
+    if (r.status === 201 || r.status === 202) { await loadLab(r.body.id, 0); refreshAll(); }
+    else $("#labErr").textContent = errMsg(r);
+  } catch (e) { $("#labErr").textContent = "Could not reach the server."; }
+  $("#labRun").disabled = false;
+};
+$("#labOut").addEventListener("click", async function (e) {
+  var c = e.target.closest("button[data-chal]");
+  if (c) {
+    $("#labErr").textContent = "";
+    Array.prototype.forEach.call(document.querySelectorAll("#labOut button[data-chal]"), function (b) { b.disabled = true; });
+    var before = LABLOG.steps.length;
+    var r = await api("POST", "/v1/payments/" + LABID + "/3ds", { result: c.dataset.chal });
+    if (r.status === 200) { await loadLab(LABID, before); refreshAll(); }
+    else { $("#labErr").textContent = errMsg(r); renderLab(0); }
+    return;
+  }
+  if (e.target.closest("button[data-lab-copy]")) {
+    var b = e.target.closest("button[data-lab-copy]");
+    try { await navigator.clipboard.writeText(JSON.stringify(LABLOG, null, 2)); b.textContent = "Copied"; } catch (x) { b.textContent = "Copy failed"; }
+    setTimeout(function () { b.textContent = "Copy log as JSON"; }, 1500);
+    return;
+  }
+  if (e.target.closest("button[data-lab-dl]")) {
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(LABLOG, null, 2)], { type: "application/json" }));
+    a.download = "3ds-log-" + LABID + ".json";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+});
 
 // ---------- init ----------
+buildLab();
 buildChips();
 $("#method").onchange = onMethod;
 onMethod();

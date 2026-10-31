@@ -170,6 +170,81 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     assert.equal((await api("DELETE", "/v1/account", { confirm: true })).status, 200, "404 from Stripe does not block deletion");
     stripeFail404 = false;
 
+    // ---------- 3-D Secure lab: message logs for every outcome ----------
+    const a4 = await api("POST", "/v1/accounts"); key = a4.body.api_key;
+    await stripeEvent("checkout.session.completed", { client_reference_id: a4.body.account_id, mode: "subscription", payment_status: "paid", customer: "cus_4", subscription: "sub_4" });
+    const tds = (n, extra = {}) => api("POST", "/v1/payments", card(n, extra));
+    const getLog = (id) => api("GET", `/v1/payments/${id}/3ds-log`);
+    const EXPECT = {
+      "4000000000003000": ["Y", "05", true, "success", "SBX-2000"], "4000000000003253": ["A", "06", true, "success", "SBX-2000"],
+      "4000000000003261": ["U", "07", false, "success", "SBX-2002"], "4000000000003238": ["N", "07", false, "failed", "SBX-4030"],
+      "4000000000003279": ["R", "07", false, "failed", "SBX-4032"],
+    };
+    let firstLogged = null;
+    for (const [num, [ts, eci, shift, state, code]] of Object.entries(EXPECT)) {
+      const r = await tds(num);
+      assert.equal(r.status, 201, num); assert.equal(r.body.transaction_state, state, num); assert.equal(r.body.status.code, code, num);
+      assert.deepEqual(r.body.authentication, { protocol: "3ds2", trans_status: ts, eci, liability_shift: shift }, num);
+      firstLogged = firstLogged || r.body.id;
+      const lg = await getLog(r.body.id);
+      assert.equal(lg.status, 200); assert.equal(lg.body.complete, true); assert.equal(lg.body.result.trans_status, ts);
+      const names = lg.body.steps.map((s) => s.name);
+      assert.ok(names.includes("AReq") && names.includes("ARes") && !names.includes("CReq"), "frictionless flow has no challenge: " + ts);
+      assert.equal(lg.body.steps.find((s) => s.name === "ARes").payload.transStatus, ts);
+      lg.body.steps.forEach((s, i) => { assert.equal(s.n, i + 1); assert.ok(s.explain && s.title && s.from && s.to, "step has explanation"); if (i) assert.ok(s.offset_ms >= lg.body.steps[i - 1].offset_ms, "offsets never go backwards"); });
+      if (ts === "Y" || ts === "A") {
+        const ares = lg.body.steps.find((s) => s.name === "ARes").payload;
+        assert.equal(ares.eci, eci); assert.ok(ares.authenticationValue.length >= 20); assert.ok(names.includes("Authorization response"));
+      } else if (ts === "U") {
+        assert.equal(lg.body.steps.find((s) => s.name === "Authorization").payload.authenticationValue, null);
+      } else {
+        assert.ok(names.includes("Stop") && !names.includes("Authorization"), "no authorisation after " + ts);
+        assert.ok(lg.body.steps.find((s) => s.name === "ARes").payload.transStatusReason, "reason code present");
+      }
+      assert.ok(!JSON.stringify(lg.body).includes(num), "full card number never appears in the log");
+    }
+
+    // challenge: approve
+    const ch = await tds("4000000000003220");
+    assert.equal(ch.status, 202); assert.equal(ch.body.three_ds.log_url, `/v1/payments/${ch.body.id}/3ds-log`);
+    assert.deepEqual(ch.body.authentication, { protocol: "3ds2", trans_status: "C", eci: null, liability_shift: null });
+    const wait = (await getLog(ch.body.id)).body;
+    assert.equal(wait.complete, false); assert.equal(wait.awaiting, "cardholder"); assert.equal(wait.result, null);
+    assert.equal(wait.steps[wait.steps.length - 1].name, "CRes"); assert.equal(wait.steps[wait.steps.length - 1].payload.challengeCompletionInd, "N");
+    const done = await api("POST", `/v1/payments/${ch.body.id}/3ds`, { result: "approve" });
+    assert.equal(done.body.transaction_state, "success");
+    assert.deepEqual(done.body.authentication, { protocol: "3ds2", trans_status: "Y", eci: "05", liability_shift: true });
+    const full = (await getLog(ch.body.id)).body, fn = full.steps.map((s) => s.name);
+    assert.equal(full.complete, true); assert.equal(full.awaiting, null);
+    assert.deepEqual(full.steps.slice(0, wait.steps.length), wait.steps, "earlier steps are unchanged when the challenge finishes");
+    assert.equal(fn.filter((n) => n === "CReq").length, 2); assert.equal(fn.filter((n) => n === "CRes").length, 2);
+    assert.ok(fn.includes("RReq") && fn.includes("RRes") && fn.includes("Authorization response"));
+    assert.ok(full.steps.find((s) => s.name === "RReq").payload.authenticationValue, "RReq carries the authentication value");
+    assert.equal((await api("POST", `/v1/payments/${ch.body.id}/3ds`, { result: "approve" })).status, 409, "challenge can only be completed once");
+
+    // challenge: wrong code
+    const ch2 = await tds("4000000000003220");
+    const failed = await api("POST", `/v1/payments/${ch2.body.id}/3ds`, { result: "fail" });
+    assert.equal(failed.body.transaction_state, "failed"); assert.equal(failed.body.status.code, "SBX-4030");
+    assert.deepEqual(failed.body.authentication, { protocol: "3ds2", trans_status: "N", eci: "07", liability_shift: false });
+    const full2 = (await getLog(ch2.body.id)).body, fn2 = full2.steps.map((s) => s.name);
+    assert.ok(fn2.includes("Stop") && !fn2.includes("Authorization"));
+    assert.equal(full2.steps.find((s) => s.name === "RReq").payload.authenticationValue, undefined, "no authentication value after a failed challenge");
+
+    // guards
+    const plain = await tds("4111111111111111");
+    const noLog = await getLog(plain.body.id);
+    assert.equal(noLog.status, 404); assert.equal(noLog.body.error.code, "no_log");
+    assert.equal((await api("POST", "/v1/payments", { request_id: "x3ds", method: "card", transaction_type: "refund", amount: 1, parent_transaction_id: plain.body.id, scenario: "3ds" })).status, 400);
+    assert.equal((await getLog("tx_0000000000000000")).status, 404);
+
+    // only the latest 20 logs are kept
+    let lastId;
+    for (let i = 0; i < 22; i++) lastId = (await tds("4000000000003000")).body.id;
+    const old = await getLog(firstLogged);
+    assert.equal(old.status, 404); assert.ok(old.body.error.message.includes("no longer stored"));
+    assert.equal((await getLog(lastId)).status, 200);
+
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.message); process.exitCode = 1; }
   finally { srv.kill(); receiver.close(); mockStripe.close(); }

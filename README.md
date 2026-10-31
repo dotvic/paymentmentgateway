@@ -45,6 +45,7 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/accounts` | Create account, returns `api_key` once |
 | `POST /v1/payments` | Create a transaction (purchase/debit, authorization, capture-authorization, refund, void) |
 | `GET /v1/payments`, `GET /v1/payments/{id}` | List (`?state=&limit=`) or fetch |
+| `GET /v1/payments/{id}/3ds-log` | Step-by-step 3-D Secure message log (AReq/ARes, CReq/CRes, RReq/RRes, authorization, liability shift). Latest 20 per account are kept |
 | `POST /v1/payments/{id}/3ds` | Complete a challenge with `{"result":"approve"\|"fail"}` |
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
@@ -63,6 +64,11 @@ Methods: `card`, `paypal`, `ideal`, `sepa`. Currencies: EUR, USD, GBP. Optional 
 | 4000 0000 0000 9995 | Insufficient funds (SBX-4051) |
 | 4000 0000 0000 0069 | Expired (SBX-4054) |
 | 4000 0000 0000 3220 | 3D Secure challenge (HTTP 202, then call `/3ds`) |
+| 4000 0000 0000 3000 | 3DS frictionless success (transStatus Y) |
+| 4000 0000 0000 3238 | 3DS denied (N, SBX-4030) |
+| 4000 0000 0000 3253 | 3DS attempted (A, liability shift) |
+| 4000 0000 0000 3261 | 3DS unavailable (U, SBX-2002, no liability shift) |
+| 4000 0000 0000 3279 | 3DS rejected (R, SBX-4032) |
 | 4000 0000 0000 0408 | Gateway timeout (HTTP 504, resolves by webhook after about 3 s) |
 
 Non-card methods and follow-up transactions approve automatically unless you set `scenario`.
