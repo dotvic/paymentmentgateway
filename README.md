@@ -52,6 +52,9 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
+| `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
+| `GET /v1/webhook/deliveries/{id}` | One delivery with the stored event body and every attempt (status, time taken, response snippet) |
+| `POST /v1/webhook/deliveries/{id}/replay` | Send a stored event again (same event id, fresh signature, header `X-DryRun-Replay: true`). Pro or trial |
 | `POST /v1/payments/{id}/3ds` | Complete a challenge with `{"result":"approve"\|"fail"}` |
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
@@ -107,3 +110,8 @@ Free: 200 payments/month, 30 requests/minute. Pro: 20,000 payments/month, 300 re
 ## Billing, Terms and Privacy
 
 See `BILLING.md` for Stripe setup, the operator details shown on `/terms` and `/privacy`, going live, and account deletion (`DELETE /v1/account`).
+
+
+## Free trial
+
+Confirming an email address starts a 14-day Pro trial (once per address and once per account, no card). During the trial the account gets Pro limits plus failure scripting and webhook replay. When it ends the account returns to Free; scripts stay saved but are not applied. Change the length with `TRIAL_DAYS` (set `0` to switch the trial off). The trial needs email to be configured (`EMAIL_API_KEY`, `EMAIL_FROM`).

@@ -76,8 +76,9 @@ th{color:var(--mute);font-weight:500;font-size:13px}
 td.wrapcell{white-space:normal;min-width:160px}
 .badge{display:inline-block;font-size:12px;padding:1px 9px;border-radius:99px;border:1px solid currentColor}
 .success{color:var(--ok)}.failed{color:var(--bad)}.pending{color:var(--wait)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:880px){.grid2{grid-template-columns:1fr}}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px}
+.grid2>*{min-width:0}
+@media(max-width:880px){.grid2{grid-template-columns:minmax(0,1fr)}}
 pre.code{background:var(--term);color:var(--term-ink);border-radius:var(--r);padding:14px;overflow:auto;font-size:13px;margin:0}
 .plans{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:720px}
 @media(max-width:600px){.plans{grid-template-columns:1fr}}
@@ -168,7 +169,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -287,6 +288,41 @@ exactly like the list under "Test cards" below.</pre>
   <div class="card tablewrap" id="ledger"></div>
 </section>
 
+<section class="block" id="script">
+  <h2>Failure script</h2>
+  <p class="sub">Make the gateway misbehave on a schedule, the way production does. Decline every third payment, return a 503, answer slowly, or send webhooks twice, late, never, or with a bad signature. Rules run in order and the first match wins. Included in Pro and in the free trial.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>Your script</h3>
+      <p class="note" id="scriptLocked">Create or paste an API key above to write a script.</p>
+      <div id="scriptForm" class="hidden">
+        <div class="chips" id="scriptPresets" role="group" aria-label="Examples"></div>
+        <label for="scriptJson">Rules (JSON)</label>
+        <textarea id="scriptJson" class="mono" rows="14" spellcheck="false" style="width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:var(--panel);font-size:13px"></textarea>
+        <div class="actions"><button class="primary" id="scriptSave">Save script</button><button id="scriptDel">Remove script</button></div>
+        <p class="note" id="scriptStatus" role="status"></p>
+        <p class="err" id="scriptErr" role="alert"></p>
+      </div>
+    </div>
+    <div class="card">
+      <h3>How rules work</h3>
+      <p class="note" style="margin-top:0">Each rule has <span class="mono">when</span> (all conditions must match; leave it out to match every payment) and <span class="mono">then</span>.</p>
+      <div class="tablewrap"><table class="fields"><tbody>
+        <tr><td class="mono">when.nth</td><td>Only the Nth payment since you saved the script (1, 2, 3...).</td></tr>
+        <tr><td class="mono">when.every</td><td>Every Nth payment.</td></tr>
+        <tr><td class="mono">when.amount_gte / amount_lte</td><td>Amount at or above or at or below a value.</td></tr>
+        <tr><td class="mono">when.currency / method / transaction_type</td><td>Match one currency, method or type.</td></tr>
+        <tr><td class="mono">when.probability</td><td>A chance from 0 to 1, for random failures.</td></tr>
+        <tr><td class="mono">then.outcome</td><td>approve, decline, nsf, expired, timeout, 3ds, 3ds_Y, 3ds_N, 3ds_A, 3ds_U, 3ds_R. Overrides the test card.</td></tr>
+        <tr><td class="mono">then.latency_ms</td><td>Wait up to 10,000 ms before answering.</td></tr>
+        <tr><td class="mono">then.http_error</td><td>Answer 500, 502 or 503 and create no payment. Retry with the same request_id.</td></tr>
+        <tr><td class="mono">then.webhook</td><td><span class="mono">duplicate</span> (1 to 3 extra copies), <span class="mono">delay_ms</span> (up to 60,000), <span class="mono">drop</span>, <span class="mono">bad_signature</span>.</td></tr>
+      </tbody></table></div>
+      <p class="note">Payments changed by a rule show <span class="mono">script_rule</span>, the rule's number. Rejected-by-script requests do not count against your monthly limit.</p>
+    </div>
+  </div>
+</section>
+
 <section class="block" id="webhooks">
   <h2>Webhooks</h2>
   <p class="sub">Register a URL and Zanboxx posts a signed event whenever a payment succeeds or fails. Failed deliveries are retried after 2, 10 and 30 seconds.</p>
@@ -304,6 +340,7 @@ exactly like the list under "Test cards" below.</pre>
     <div class="card"><h3>Recent deliveries</h3><div class="tablewrap" id="whLog"><p class="note">No deliveries yet.</p></div>
       <div class="actions hidden" id="whRefreshBox"><button class="small" id="whRefresh">Refresh</button></div></div>
   </div>
+  <div class="card hidden" id="whDetail" style="margin-top:16px" aria-live="polite"></div>
   <h3 style="margin-top:24px">Verify the signature (Node.js)</h3>
 <pre class="code mono">const crypto = require("crypto");
 function verify(rawBody, header, secret) {
@@ -364,9 +401,9 @@ curl -X POST <span class="base"></span>/v1/payments/tx_.../3ds \
   <p class="sub">The free plan is all you need to build and test a checkout.</p>
   <div class="plans">
     <div class="card"><h3>Free</h3><div class="note" style="margin:0">Available now</div>
-      <ul><li>200 test payments a month</li><li>30 requests a minute</li><li>Signed webhooks with retries</li></ul></div>
+      <ul><li>200 test payments a month</li><li>30 requests a minute</li><li>Signed webhooks with retries</li><li>3-D Secure lab and delivery log</li></ul></div>
     <div class="card"><h3>Pro</h3><div class="note" style="margin:0" id="proPrice">Not open yet</div>
-      <ul><li>20,000 test payments a month</li><li>300 requests a minute</li><li>For teams running automated tests</li></ul>
+      <ul><li>20,000 test payments a month</li><li>300 requests a minute</li><li>Failure scripting</li><li>Webhook replay</li><li>For teams running automated tests</li></ul><p class="note" id="trialLine">Try Pro free for 14 days: confirm your email address in the key panel. No card needed.</p>
       <p class="note hidden" id="proHint">Create a key above, then choose "Upgrade to Pro" in the key panel. Cancel any time.</p></div>
   </div>
 </section>
@@ -440,6 +477,9 @@ function renderSession() {
     $("#keyShow").textContent = keyIsNew ? key : key.slice(0, 12) + "..." + key.slice(-4);
     $("#keyNote").textContent = keyIsNew ? "Copy it now. It is shown in full only once, and also saved in this browser so you can keep testing." : "Saved in this browser. The full key is not shown again.";
   }
+  $("#scriptLocked").classList.toggle("hidden", on);
+  $("#scriptForm").classList.toggle("hidden", !on);
+  if (!on) { $("#whDetail").classList.add("hidden"); $("#scriptJson").value = ""; }
   renderBilling();
   renderEmail();
 }
@@ -568,10 +608,10 @@ $("#ledger").addEventListener("click", async function (e) {
   refreshAll();
 });
 
-var CONFIG = { billing: false, pro_price: null }, PLAN = "free";
+var CONFIG = { billing: false, pro_price: null }, PLAN = "free", USAGE = {};
 async function refreshUsage() {
   var r = await api("GET", "/v1/usage");
-  if (r.status === 200) { PLAN = r.body.plan; EMAIL_ADDR = r.body.email || null; renderEmail(); $("#usage").textContent = r.body.used + " of " + r.body.limit + " test payments used this month (" + r.body.plan + " plan)."; }
+  if (r.status === 200) { PLAN = r.body.plan; EMAIL_ADDR = r.body.email || null; USAGE = r.body; renderEmail(); loadScript(); $("#usage").textContent = r.body.used + " of " + r.body.limit + " test payments used this month (" + (r.body.plan_source === "trial" ? "Pro trial, " + r.body.trial_days_left + (r.body.trial_days_left === 1 ? " day" : " days") + " left" : r.body.plan + " plan") + ")."; }
   else if (r.status === 401) { $("#usage").textContent = "This key is no longer valid. Create a new one."; }
   renderBilling();
 }
@@ -622,9 +662,9 @@ async function refreshWebhook() {
   $("#whSecret").textContent = r.body.secret ? "Signing secret: " + r.body.secret : "No endpoint registered yet.";
   var d = await api("GET", "/v1/webhook/deliveries");
   if (d.status === 200) {
-    $("#whLog").innerHTML = d.body.data.length ? "<table><thead><tr><th>Event</th><th>Result</th><th>Attempts</th></tr></thead><tbody>" + d.body.data.slice(0, 10).map(function (x) {
+    $("#whLog").innerHTML = d.body.data.length ? "<table><thead><tr><th>Event</th><th>Result</th><th>Attempts</th><th></th></tr></thead><tbody>" + d.body.data.slice(0, 10).map(function (x) {
       var last = x.attempts[x.attempts.length - 1] || {};
-      return "<tr><td>" + esc(x.event_type) + '</td><td><span class="badge ' + (x.delivered ? "success" : "failed") + '">' + (x.delivered ? "delivered" : "failed") + "</span> " + esc(last.status || last.error || "") + "</td><td>" + x.attempts.length + "</td></tr>";
+      return "<tr><td>" + esc(x.event_type) + '</td><td><span class="badge ' + (x.delivered ? "success" : "failed") + '">' + (x.delivered ? "delivered" : "failed") + "</span> " + esc(last.status || last.error || "") + "</td><td>" + x.attempts.length + "</td><td>" + (x.id ? '<button class="small" data-dlv="' + esc(x.id) + '">Details</button>' : "") + "</td></tr>";
     }).join("") + "</tbody></table>" : '<p class="note">No deliveries yet.</p>';
   }
 }
@@ -769,11 +809,15 @@ function recMsg(id, text, isErr) { var el = $(id); el.textContent = text || ""; 
 function renderEmail() {
   var on = CONFIG.email;
   $("#lostBox").classList.toggle("hidden", !on);
+  var days = key && USAGE.trial_days !== undefined ? USAGE.trial_days : 14;
+  $("#trialLine").textContent = "Try Pro free for " + days + " days: confirm your email address in the key panel. No card needed.";
+  $("#trialLine").classList.toggle("hidden", !on || days === 0 || (!!key && USAGE.trial_available === false));
   if (!key) return;
   $("#recForm").classList.toggle("hidden", !on || !!EMAIL_ADDR);
   $("#recRemove").classList.toggle("hidden", !EMAIL_ADDR);
-  $("#recState").textContent = EMAIL_ADDR ? "Confirmed email: " + EMAIL_ADDR + ". If you lose your key, use \"I lost my key\" on this page to get a new one." :
-    on ? "No email on this account. Add one so you can get back in if you lose this key. We use it for nothing else." : "Email recovery is not open yet. Keep a copy of your key somewhere safe.";
+  var trialOffer = USAGE.trial_available && on ? " Confirming it also starts a free " + USAGE.trial_days + "-day Pro trial. No card needed." : "";
+  $("#recState").textContent = EMAIL_ADDR ? "Confirmed email: " + EMAIL_ADDR + ". If you lose your key, use \"I lost my key\" on this page to get a new one." + (USAGE.plan_source === "trial" ? " Your Pro trial ends in " + USAGE.trial_days_left + (USAGE.trial_days_left === 1 ? " day." : " days.") : "") :
+    on ? "No email on this account. Add one so you can get back in if you lose this key. We use it for nothing else." + trialOffer : "Email recovery is not open yet. Keep a copy of your key somewhere safe.";
 }
 function mailPost(path, email, msgId) {
   var em = String(email || "").trim();
@@ -805,12 +849,84 @@ async function handleMailLink() {
   var r = await api("POST", lt ? "/v1/login/redeem" : "/v1/email/verify", { token: lt || vt }).catch(function () { return { status: 0, body: null }; });
   key = k;
   if (r.status === 200 && lt) { setKey(r.body.api_key, true); box.textContent = "You are signed in. Your new API key is shown below; your old key no longer works."; $("#try").scrollIntoView(); }
-  else if (r.status === 200) { EMAIL_ADDR = r.body.email; box.textContent = "Email confirmed: " + r.body.email + ". You can now sign in with a link if you lose your key."; renderEmail(); }
+  else if (r.status === 200) { EMAIL_ADDR = r.body.email; box.textContent = "Email confirmed: " + r.body.email + ". You can now sign in with a link if you lose your key." + (r.body.trial_ends ? " Your free Pro trial has started. Failure scripting and webhook replay are unlocked." : ""); if (key) refreshUsage(); renderEmail(); }
   else box.textContent = (r.body && r.body.error && r.body.error.message) || "That link did not work. Request a new one.";
 }
 
+// ---------- failure script ----------
+var SCRIPT_PRESETS = [
+  { label: "Every 3rd payment declines", rules: [{ name: "Every 3rd payment is declined", when: { every: 3 }, then: { outcome: "decline" } }] },
+  { label: "Flaky gateway", rules: [{ name: "Every 4th request gets a 503", when: { every: 4 }, then: { http_error: 503 } }, { name: "One in five is slow", when: { probability: 0.2 }, then: { latency_ms: 3000 } }] },
+  { label: "Webhook chaos", rules: [{ name: "Duplicate", when: { every: 2 }, then: { webhook: { duplicate: 1 } } }, { name: "Late", when: { every: 3 }, then: { webhook: { delay_ms: 5000 } } }, { name: "Bad signature", when: { every: 5 }, then: { webhook: { bad_signature: true } } }] },
+  { label: "Large amounts fail", rules: [{ name: "Over 500 is refused", when: { amount_gte: 500 }, then: { outcome: "nsf" } }] }
+];
+function scriptMsg(id, text, isErr) { var el = $(id); el.textContent = text || ""; el.className = isErr ? "err" : "note"; }
+function buildScriptPresets() {
+  $("#scriptPresets").innerHTML = SCRIPT_PRESETS.map(function (p, i) { return '<button type="button" class="small" data-preset="' + i + '">' + esc(p.label) + "</button>"; }).join("");
+}
+function renderScriptPlan() {
+  var pro = PLAN === "pro";
+  var st = $("#scriptStatus");
+  if (!pro && key) st.textContent = USAGE.trial_available ? "Failure scripting is part of Pro. Confirm your email under \"Account recovery and key\" to start a free " + USAGE.trial_days + "-day trial, or upgrade to Pro." : "Failure scripting is part of Pro. Upgrade to Pro to use it.";
+}
+async function loadScript() {
+  if (!key) return;
+  var r = await api("GET", "/v1/script");
+  if (r.status !== 200) return;
+  $("#scriptJson").value = r.body.rules.length ? JSON.stringify({ rules: r.body.rules }, null, 2) : "";
+  scriptMsg("#scriptStatus", r.body.rules.length ? (r.body.active ? "Script active: " + r.body.rules.length + " rule" + (r.body.rules.length === 1 ? "" : "s") + ", " + r.body.requests_counted + " payment" + (r.body.requests_counted === 1 ? "" : "s") + " counted since you saved it." : "Script saved but paused: it is applied only on Pro or during the trial.") : "No script. Every payment behaves normally.");
+  if (!r.body.pro) renderScriptPlan();
+}
+$("#scriptPresets").addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-preset]");
+  if (b) $("#scriptJson").value = JSON.stringify({ rules: SCRIPT_PRESETS[+b.dataset.preset].rules }, null, 2);
+});
+$("#scriptSave").onclick = async function () {
+  scriptMsg("#scriptErr", "");
+  var body;
+  try { body = JSON.parse($("#scriptJson").value); } catch (e) { scriptMsg("#scriptErr", "That is not valid JSON: " + e.message, true); return; }
+  var r = await api("PUT", "/v1/script", body);
+  if (r.status === 200) { await loadScript(); scriptMsg("#scriptStatus", "Saved. The counter starts again at 0, so nth and every count from your next payment."); }
+  else scriptMsg("#scriptErr", errMsg(r), true);
+};
+$("#scriptDel").onclick = async function () {
+  scriptMsg("#scriptErr", "");
+  var r = await api("DELETE", "/v1/script");
+  if (r.status === 200) { $("#scriptJson").value = ""; scriptMsg("#scriptStatus", "Script removed."); } else scriptMsg("#scriptErr", errMsg(r), true);
+};
+
+// ---------- webhook inspector ----------
+var DETAIL_ID = null;
+async function showDelivery(id) {
+  var r = await api("GET", "/v1/webhook/deliveries/" + id), box = $("#whDetail");
+  if (r.status !== 200) { box.classList.remove("hidden"); box.innerHTML = '<p class="err" style="margin:0">' + esc(errMsg(r)) + "</p>"; return; }
+  var d = r.body; DETAIL_ID = d.id;
+  var flags = (d.flags || []).map(function (f) { return '<span class="badge pending">' + esc(f.replace("_", " ")) + "</span> "; }).join("");
+  box.classList.remove("hidden");
+  box.innerHTML = '<h3>' + esc(d.event_type) + ' <span class="mono" style="font-weight:400;font-size:13px">' + esc(d.event_id) + "</span></h3>" +
+    "<p class=\"note\" style=\"margin-top:0\">" + flags + (d.replay_of ? "Replay of " + esc(d.replay_of) + ". " : "") + "Sent to " + esc(d.url) + "</p>" +
+    '<div class="tablewrap"><table class="fields"><thead><tr><th>Time</th><th>Result</th><th>Took</th><th>Response</th></tr></thead><tbody>' +
+    (d.attempts.length ? d.attempts.map(function (a) { return "<tr><td class=\"mono\">" + esc(a.at.slice(11, 19)) + "</td><td>" + esc(a.status || a.error || "") + "</td><td>" + (a.ms !== undefined ? a.ms + " ms" : "") + "</td><td class=\"mono\">" + esc(a.response || "") + "</td></tr>"; }).join("") : "<tr><td colspan=\"4\">No attempts yet.</td></tr>") +
+    "</tbody></table></div>" +
+    (d.event ? '<p class="note">Event body (this is exactly what your endpoint received):</p><pre class="code mono">' + esc(JSON.stringify(d.event, null, 2)) + "</pre>" : '<p class="note">This delivery was made before the inspector existed, so no body was stored.</p>') +
+    '<div class="actions"><button class="primary small" data-replay="' + esc(d.id) + '">Replay this event</button><button class="small" data-close="1">Close</button></div><p class="note" id="replayMsg" role="status">Replay sends the same event again, with the same event id and a fresh signature, so you can test your idempotency handling. Included in Pro and in the trial.</p>';
+}
+$("#whLog").addEventListener("click", function (e) { var b = e.target.closest("button[data-dlv]"); if (b) showDelivery(b.dataset.dlv); });
+$("#whDetail").addEventListener("click", async function (e) {
+  if (e.target.closest("button[data-close]")) { $("#whDetail").classList.add("hidden"); return; }
+  var b = e.target.closest("button[data-replay]");
+  if (!b) return;
+  b.disabled = true;
+  var r = await api("POST", "/v1/webhook/deliveries/" + b.dataset.replay + "/replay");
+  b.disabled = false;
+  var m = $("#replayMsg");
+  if (r.status === 202) { m.className = "note"; m.textContent = "Replay queued. It appears at the top of Recent deliveries in a moment."; setTimeout(function () { refreshWebhook(); }, 1500); }
+  else { m.className = "err"; m.textContent = errMsg(r); }
+});
+
 // ---------- init ----------
 buildLab();
+buildScriptPresets();
 buildChips();
 $("#method").onchange = onMethod;
 onMethod();

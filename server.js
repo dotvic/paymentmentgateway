@@ -15,6 +15,13 @@ const ALLOW_PRIVATE = process.env.ALLOW_PRIVATE_WEBHOOKS === "1";
 const RETRY_MS = (process.env.RETRY_MS || "0,2000,10000,30000").split(",").map(Number);
 const SETTLE_MS = process.env.SETTLE_DELAY_MS ? +process.env.SETTLE_DELAY_MS : 3000;
 const PLANS = { free: { monthly: 200, rpm: 30 }, pro: { monthly: 20000, rpm: 300 } };
+const TRIAL_DAYS = process.env.TRIAL_DAYS === undefined ? 14 : Math.max(0, +process.env.TRIAL_DAYS || 0);
+const trialActive = (a) => !!(a.trial && Date.parse(a.trial.ends) > Date.now());
+// The plan that applies right now: a paid subscription or an active free trial both give Pro.
+const planOf = (a) => (a.plan === "pro" || trialActive(a) ? "pro" : "free");
+function requirePro(a, what) {
+  if (planOf(a) !== "pro") throw bad(402, "pro_required", `${what} is included in Pro and in the free trial. Confirm your email to start the ${TRIAL_DAYS}-day trial, or upgrade to Pro.`);
+}
 
 // ---------- billing (Stripe) and legal pages: configured with environment variables ----------
 const STRIPE_KEY = process.env.STRIPE_SECRET_KEY || "";
@@ -86,7 +93,7 @@ const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-405
 // ---------- storage ----------
 let DB = { accounts: {}, keys: {} };
 try { DB = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch {}
-DB.accounts = DB.accounts || {}; DB.keys = DB.keys || {}; DB.tokens = DB.tokens || {}; DB.emails = DB.emails || {};
+DB.trials = DB.trials || {}; DB.accounts = DB.accounts || {}; DB.keys = DB.keys || {}; DB.tokens = DB.tokens || {}; DB.emails = DB.emails || {};
 let timer = null;
 const save = () => { clearTimeout(timer); timer = setTimeout(() => fs.writeFile(DATA_FILE, JSON.stringify(DB), () => {}), 200); };
 const rnd = (n) => crypto.randomBytes(n).toString("hex");
@@ -123,31 +130,49 @@ async function checkWebhookUrl(raw) {
 }
 const sign = (secret, ts, body) => `t=${ts},v1=${crypto.createHmac("sha256", secret).update(`${ts}.${body}`).digest("hex")}`;
 
-async function deliver(acc, event) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// opts: { hook: webhook behaviours from a failure script, replayOf: id of the delivery being replayed }
+async function deliver(acc, event, opts = {}) {
   const wh = acc.webhook;
   if (!wh || !wh.url) return;
-  const rec = { event_id: event.id, event_type: event.type, url: wh.url, delivered: false, attempts: [] };
-  acc.deliveries.unshift(rec); acc.deliveries = acc.deliveries.slice(0, 100);
+  const hook = opts.hook || {}, flags = [];
+  if (hook.drop) flags.push("dropped");
+  if (hook.delay_ms) flags.push("delayed");
+  if (hook.bad_signature) flags.push("bad_signature");
+  if (hook.duplicate) flags.push("duplicate");
+  if (opts.replayOf) flags.push("replay");
+  const copies = hook.drop ? 1 : 1 + (hook.duplicate || 0);
   const body = JSON.stringify(event);
-  for (const wait of RETRY_MS) {
-    if (wait) await new Promise((r) => setTimeout(r, wait));
-    const at = new Date().toISOString();
-    try {
-      await checkWebhookUrl(wh.url);
-      const ts = Math.floor(Date.now() / 1000);
-      const res = await fetch(wh.url, {
-        method: "POST", redirect: "manual", signal: AbortSignal.timeout(5000), body,
-        headers: { "content-type": "application/json", "x-dryrun-signature": sign(wh.secret, ts, body), "x-dryrun-event": event.type },
-      });
-      rec.attempts.push({ at, status: res.status });
-      if (res.status >= 200 && res.status < 300) { rec.delivered = true; break; }
-    } catch (e) { rec.attempts.push({ at, error: String(e.message || e).slice(0, 120) }); }
+  for (let c = 0; c < copies; c++) {
+    const rec = { id: "dlv_" + rnd(6), event_id: event.id, event_type: event.type, url: wh.url, delivered: false, attempts: [], created_at: new Date().toISOString(), event };
+    if (flags.length) rec.flags = flags.slice();
+    if (opts.replayOf) rec.replay_of = opts.replayOf;
+    if (c > 0) rec.copy = c + 1;
+    acc.deliveries.unshift(rec); acc.deliveries = acc.deliveries.slice(0, 100);
+    if (hook.drop) { rec.attempts.push({ at: rec.created_at, error: "not sent: dropped by your failure script" }); save(); return; }
+    if (hook.delay_ms) await sleep(hook.delay_ms);
+    for (const wait of RETRY_MS) {
+      if (wait) await sleep(wait);
+      const at = new Date().toISOString(), t0 = Date.now();
+      try {
+        await checkWebhookUrl(wh.url);
+        const ts = Math.floor(Date.now() / 1000);
+        const res = await fetch(wh.url, {
+          method: "POST", redirect: "manual", signal: AbortSignal.timeout(5000), body,
+          headers: { "content-type": "application/json", "x-dryrun-signature": sign(hook.bad_signature ? wh.secret + "_wrong" : wh.secret, ts, body), "x-dryrun-event": event.type, ...(opts.replayOf ? { "x-dryrun-replay": "true" } : {}) },
+        });
+        let snippet = "";
+        try { snippet = (await res.text()).slice(0, 300); } catch {}
+        rec.attempts.push({ at, status: res.status, ms: Date.now() - t0, ...(snippet ? { response: snippet } : {}) });
+        if (res.status >= 200 && res.status < 300) { rec.delivered = true; break; }
+      } catch (e) { rec.attempts.push({ at, ms: Date.now() - t0, error: String(e.message || e).slice(0, 120) }); }
+    }
+    save();
   }
-  save();
 }
 function emit(acc, p) {
   const ok = p.transaction_state === "success";
-  deliver(acc, { id: "evt_" + rnd(8), type: ok ? "payment.succeeded" : "payment.failed", created_at: new Date().toISOString(), data: pub(p) });
+  deliver(acc, { id: "evt_" + rnd(8), type: ok ? "payment.succeeded" : "payment.failed", created_at: new Date().toISOString(), data: pub(p) }, { hook: p._hook });
 }
 
 // ---------- gateway simulation ----------
@@ -189,7 +214,82 @@ function settle(acc, p, ok, code, message) {
   setTimeout(() => emit(acc, p), 300);
 }
 
+// ---------- failure script (Pro / trial) ----------
+const SCRIPT_OUTCOMES = ["approve", "decline", "nsf", "expired", "timeout", "3ds", "3ds_Y", "3ds_N", "3ds_A", "3ds_U", "3ds_R"];
+const SCRIPT_HTTP = [500, 502, 503];
+const MAX_RULES = 20;
+function parseScript(b) {
+  if (!b || !Array.isArray(b.rules)) throw bad(400, "invalid_script", "Body must be {\"rules\": [...]}");
+  if (b.rules.length > MAX_RULES) throw bad(400, "invalid_script", `At most ${MAX_RULES} rules`);
+  const num = (v, min, max, what, int) => {
+    if (typeof v !== "number" || !isFinite(v) || v < min || v > max || (int && !Number.isInteger(v))) throw bad(400, "invalid_script", `${what} must be ${int ? "a whole number" : "a number"} between ${min} and ${max}`);
+    return v;
+  };
+  const only = (o, allowed, what) => { for (const k of Object.keys(o)) if (!allowed.includes(k)) throw bad(400, "invalid_script", `Unknown field "${k}" in ${what}. Allowed: ${allowed.join(", ")}`); };
+  const rules = b.rules.map((r, i) => {
+    const at = `rule ${i + 1}`;
+    if (!r || typeof r !== "object" || Array.isArray(r)) throw bad(400, "invalid_script", `${at} must be an object`);
+    only(r, ["name", "when", "then"], at);
+    const w = r.when || {}, t = r.then || {};
+    if (typeof w !== "object" || typeof t !== "object" || Array.isArray(w) || Array.isArray(t)) throw bad(400, "invalid_script", `${at}: when and then must be objects`);
+    only(w, ["nth", "every", "amount_gte", "amount_lte", "currency", "method", "transaction_type", "probability"], at + " when");
+    only(t, ["outcome", "latency_ms", "http_error", "webhook"], at + " then");
+    const when = {};
+    if ("nth" in w) when.nth = num(w.nth, 1, 1e9, `${at}: nth`, true);
+    if ("every" in w) when.every = num(w.every, 1, 1e9, `${at}: every`, true);
+    if ("amount_gte" in w) when.amount_gte = num(w.amount_gte, 0, 1e7, `${at}: amount_gte`);
+    if ("amount_lte" in w) when.amount_lte = num(w.amount_lte, 0, 1e7, `${at}: amount_lte`);
+    if ("probability" in w) when.probability = num(w.probability, 0, 1, `${at}: probability`);
+    if ("currency" in w) { if (!CURRENCIES.includes(w.currency)) throw bad(400, "invalid_script", `${at}: currency must be one of ${CURRENCIES.join(", ")}`); when.currency = w.currency; }
+    if ("method" in w) { if (!TYPES[w.method]) throw bad(400, "invalid_script", `${at}: method must be one of ${Object.keys(TYPES).join(", ")}`); when.method = w.method; }
+    if ("transaction_type" in w) { if (!Object.values(TYPES).some((l) => l.includes(w.transaction_type))) throw bad(400, "invalid_script", `${at}: unknown transaction_type`); when.transaction_type = w.transaction_type; }
+    const then = {};
+    if ("outcome" in t) { if (!SCRIPT_OUTCOMES.includes(t.outcome)) throw bad(400, "invalid_script", `${at}: outcome must be one of ${SCRIPT_OUTCOMES.join(", ")}`); then.outcome = t.outcome; }
+    if ("latency_ms" in t) then.latency_ms = num(t.latency_ms, 0, 10000, `${at}: latency_ms`, true);
+    if ("http_error" in t) { if (!SCRIPT_HTTP.includes(t.http_error)) throw bad(400, "invalid_script", `${at}: http_error must be one of ${SCRIPT_HTTP.join(", ")}`); then.http_error = t.http_error; }
+    if ("webhook" in t) {
+      const h = t.webhook;
+      if (!h || typeof h !== "object" || Array.isArray(h)) throw bad(400, "invalid_script", `${at}: webhook must be an object`);
+      only(h, ["duplicate", "delay_ms", "drop", "bad_signature"], at + " webhook");
+      then.webhook = {};
+      if ("duplicate" in h) then.webhook.duplicate = num(h.duplicate, 1, 3, `${at}: webhook.duplicate`, true);
+      if ("delay_ms" in h) then.webhook.delay_ms = num(h.delay_ms, 1, 60000, `${at}: webhook.delay_ms`, true);
+      if ("drop" in h) { if (typeof h.drop !== "boolean") throw bad(400, "invalid_script", `${at}: webhook.drop must be true or false`); if (h.drop) then.webhook.drop = true; }
+      if ("bad_signature" in h) { if (typeof h.bad_signature !== "boolean") throw bad(400, "invalid_script", `${at}: webhook.bad_signature must be true or false`); if (h.bad_signature) then.webhook.bad_signature = true; }
+    }
+    if (!Object.keys(then).length) throw bad(400, "invalid_script", `${at}: "then" must do something (outcome, latency_ms, http_error or webhook)`);
+    const name = r.name === undefined ? "" : String(r.name).slice(0, 60);
+    return { name, when, then };
+  });
+  return rules;
+}
+// Returns the first matching rule (and its 1-based number) for a payment request, counting this request.
+function matchScript(acc, ctx) {
+  const sc = acc.script;
+  if (!sc || !sc.rules.length || planOf(acc) !== "pro") return null;
+  sc.count++;
+  for (let i = 0; i < sc.rules.length; i++) {
+    const w = sc.rules[i].when;
+    if (w.nth !== undefined && sc.count !== w.nth) continue;
+    if (w.every !== undefined && sc.count % w.every !== 0) continue;
+    if (w.amount_gte !== undefined && ctx.amount < w.amount_gte) continue;
+    if (w.amount_lte !== undefined && ctx.amount > w.amount_lte) continue;
+    if (w.currency && ctx.currency !== w.currency) continue;
+    if (w.method && ctx.method !== w.method) continue;
+    if (w.transaction_type && ctx.type !== w.transaction_type) continue;
+    if (w.probability !== undefined && Math.random() >= w.probability) continue;
+    return { n: i + 1, rule: sc.rules[i] };
+  }
+  return null;
+}
+
 function createPayment(acc, b) {
+  const meta = { latency_ms: 0 };
+  const out = createPaymentInner(acc, b, meta);
+  out.latency_ms = meta.latency_ms;
+  return out;
+}
+function createPaymentInner(acc, b, meta) {
   if (typeof b.request_id !== "string" || !b.request_id || b.request_id.length > 64) throw bad(400, "invalid_request", "request_id is required (string, max 64 chars)");
   const dup = acc.payments.find((p) => p.request_id === b.request_id);
   if (dup) throw bad(409, "duplicate_request", "request_id already used; fetch the original transaction instead", { transaction_id: dup.id });
@@ -219,12 +319,24 @@ function createPayment(acc, b) {
   let outcome = scenario;
   if (scenario === "auto") outcome = parent || b.method !== "card" ? "approve" : CARDS[card] || "decline";
 
+  const hit = matchScript(acc, { amount, currency, method: b.method, type });
+  let latency_ms = 0, hook = null;
+  if (hit) {
+    const t = hit.rule.then;
+    if (t.http_error) { meta.latency_ms = t.latency_ms || 0; return { status: t.http_error, injected: true, body: { error: { code: "SBX-5000", message: `Gateway error injected by your failure script (rule ${hit.n}). No payment was created; retry with the same request_id.`, script_rule: hit.n } } }; }
+    latency_ms = meta.latency_ms = t.latency_ms || 0; hook = t.webhook || null;
+    const canTds = b.method === "card" && !parent && ["purchase", "authorization"].includes(type);
+    if (t.outcome && (canTds || !t.outcome.startsWith("3ds"))) outcome = t.outcome;
+  }
+
   const p = {
     id: "tx_" + rnd(8), request_id: b.request_id, transaction_type: type, transaction_state: "pending", method: b.method,
     amount, currency, parent_transaction_id: parent ? parent.id : null, status: { code: "SBX-2010", message: "Processing" },
     created_at: new Date().toISOString(),
   };
   if (b.method === "card" && !parent && card) p.card_last4 = card.slice(-4);
+  if (hit) p.script_rule = hit.n;
+  if (hook) p._hook = hook;
   if (type === "authorization") p.captured_amount = 0;
   if (PAY.includes(type)) p.refunded_amount = 0;
   acc.payments.unshift(p);
@@ -464,19 +576,30 @@ async function route(req, res) {
     const t = takeToken((await readBody(req)).token, "verify"), a = DB.accounts[t.acct];
     if (DB.emails[t.email] && DB.emails[t.email] !== a.id) throw bad(409, "email_in_use", "That address is already linked to another account");
     if (a.email && DB.emails[a.email] === a.id) delete DB.emails[a.email];
-    a.email = t.email; a.email_verified = true; DB.emails[t.email] = a.id; save();
-    return send(res, 200, { verified: true, email: t.email });
+    a.email = t.email; a.email_verified = true; DB.emails[t.email] = a.id;
+    let trialEnds = null;
+    const eh = sha(t.email);
+    if (TRIAL_DAYS > 0 && !a.trial && !DB.trials[eh]) {
+      DB.trials[eh] = Date.now();
+      a.trial = { started: new Date().toISOString(), ends: new Date(Date.now() + TRIAL_DAYS * 864e5).toISOString() };
+      trialEnds = a.trial.ends;
+    }
+    save();
+    return send(res, 200, { verified: true, email: t.email, trial_ends: trialEnds });
   }
 
   const acc = auth(req);
-  if (limited(buckets, acc.id, PLANS[acc.plan].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down");
+  const plan = planOf(acc);
+  if (limited(buckets, acc.id, PLANS[plan].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down");
 
   if (m === "POST" && path === "/v1/payments") {
     const month = new Date().toISOString().slice(0, 7);
     if (acc.usage.month !== month) acc.usage = { month, count: 0 };
-    if (acc.usage.count >= PLANS[acc.plan].monthly) throw bad(402, "plan_limit", `Monthly limit of ${PLANS[acc.plan].monthly} payments reached for the ${acc.plan} plan`);
+    if (acc.usage.count >= PLANS[plan].monthly) throw bad(402, "plan_limit", `Monthly limit of ${PLANS[plan].monthly} payments reached for the ${plan} plan`);
     const out = createPayment(acc, await readBody(req));
-    acc.usage.count++; save();
+    if (!out.injected) acc.usage.count++;
+    save();
+    if (out.latency_ms) await sleep(out.latency_ms);
     return send(res, out.status, out.body);
   }
   if (m === "GET" && path === "/v1/payments") {
@@ -521,7 +644,33 @@ async function route(req, res) {
     deliver(acc, { id: "evt_" + rnd(8), type: "ping", created_at: new Date().toISOString(), data: {} });
     return send(res, 202, { queued: true });
   }
-  if (m === "GET" && path === "/v1/webhook/deliveries") return send(res, 200, { data: acc.deliveries });
+  if (m === "GET" && path === "/v1/webhook/deliveries") return send(res, 200, { data: acc.deliveries.map(({ event, ...rest }) => rest) });
+  if (path === "/v1/script") {
+    if (m === "GET") return send(res, 200, { active: planOf(acc) === "pro" && !!(acc.script && acc.script.rules.length), rules: acc.script ? acc.script.rules : [], requests_counted: acc.script ? acc.script.count : 0, max_rules: MAX_RULES, pro: planOf(acc) === "pro" });
+    if (m === "PUT") {
+      requirePro(acc, "Failure scripting");
+      acc.script = { rules: parseScript(await readBody(req)), count: 0, updated_at: new Date().toISOString() }; save();
+      return send(res, 200, { active: acc.script.rules.length > 0, rules: acc.script.rules, requests_counted: 0, max_rules: MAX_RULES, pro: true });
+    }
+    if (m === "DELETE") { acc.script = null; save(); return send(res, 200, { active: false, rules: [] }); }
+  }
+  let dm;
+  if (m === "GET" && (dm = path.match(/^\/v1\/webhook\/deliveries\/(dlv_[a-f0-9]+)$/))) {
+    const d = acc.deliveries.find((x) => x.id === dm[1]);
+    if (!d) throw bad(404, "not_found", "Delivery not found (only the latest 100 are kept)");
+    return send(res, 200, d);
+  }
+  if (m === "POST" && (dm = path.match(/^\/v1\/webhook\/deliveries\/(dlv_[a-f0-9]+)\/replay$/))) {
+    requirePro(acc, "Webhook replay");
+    if (!acc.webhook) throw bad(409, "no_webhook", "Register a webhook first with PUT /v1/webhook");
+    const d = acc.deliveries.find((x) => x.id === dm[1]);
+    if (!d) throw bad(404, "not_found", "Delivery not found (only the latest 100 are kept)");
+    if (!d.event) throw bad(409, "not_replayable", "This delivery was made before replay existed and has no stored event");
+    if (limited(buckets, "replay:" + acc.id, 20, 60e3)) throw bad(429, "rate_limited", "Too many replays; wait a minute");
+    deliver(acc, d.event, { replayOf: d.id });
+    return send(res, 202, { queued: true, replay_of: d.id, event_id: d.event.id });
+  }
+
 
   if (m === "POST" && path === "/v1/account/email") {
     if (!emailOn()) throw bad(503, "email_unavailable", "Email is not open yet");
@@ -536,7 +685,16 @@ async function route(req, res) {
   }
   if (m === "DELETE" && path === "/v1/account/email") { dropAccountEmail(acc); save(); return send(res, 200, { removed: true }); }
   if (m === "POST" && path === "/v1/account/rotate-key") return send(res, 200, { api_key: issueKey(acc), note: "Your previous API key no longer works." });
-  if (m === "GET" && path === "/v1/usage") return send(res, 200, { email: acc.email_verified ? acc.email : null, plan: acc.plan, month: acc.usage.month, used: acc.usage.count, limit: PLANS[acc.plan].monthly, billing: billingOn(), subscription_status: acc.stripe ? acc.stripe.status : null });
+  if (m === "GET" && path === "/v1/usage") {
+    const sub = acc.plan === "pro", tr = trialActive(acc);
+    return send(res, 200, {
+      email: acc.email_verified ? acc.email : null, plan, plan_source: sub ? "subscription" : tr ? "trial" : "free",
+      trial_ends: tr ? acc.trial.ends : null, trial_days_left: tr ? Math.max(1, Math.ceil((Date.parse(acc.trial.ends) - Date.now()) / 864e5)) : null,
+      trial_available: !acc.trial && TRIAL_DAYS > 0 && emailOn() && !acc.email_verified, trial_days: TRIAL_DAYS,
+      month: acc.usage.month, used: acc.usage.count, limit: PLANS[plan].monthly, billing: billingOn(),
+      subscription_status: acc.stripe ? acc.stripe.status : null, script_active: !!(acc.script && acc.script.rules.length && plan === "pro"),
+    });
+  }
 
   if (m === "POST" && path === "/v1/billing/checkout") {
     if (!billingOn()) throw bad(503, "billing_unavailable", "Pro plan billing is not open yet");

@@ -46,7 +46,7 @@ const receiver = http.createServer((req, res) => {
   let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => {
     const [t, v] = req.headers["x-dryrun-signature"].split(",").map((s) => s.split("=")[1]);
     const ok = crypto.createHmac("sha256", secret).update(`${t}.${d}`).digest("hex") === v;
-    hooks.push({ body: JSON.parse(d), ok });
+    hooks.push({ body: JSON.parse(d), ok, replay: req.headers["x-dryrun-replay"] === "true" });
     if (failFirst && JSON.parse(d).type === "payment.failed") { failFirst = false; res.writeHead(500); return res.end(); }
     res.writeHead(200); res.end();
   });
@@ -309,6 +309,132 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     key = eb.body.api_key;
 await api("POST", "/v1/account/email", { email: "learner@example.test" }); await sleep(150);
     assert.equal((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).status, 200, "address freed after removal");
+
+    // ---- Pro trial, failure scripting, webhook inspector and replay ----
+    const verifyEmail = async (email) => { await api("POST", "/v1/account/email", { email }); await sleep(150); return api("POST", "/v1/email/verify", { token: lastLink("verify") }); };
+    const free = await api("POST", "/v1/accounts"); key = free.body.api_key;
+    let u = (await api("GET", "/v1/usage")).body;
+    assert.equal(u.plan, "free"); assert.equal(u.trial_available, true); assert.equal(u.trial_days, 14);
+    const noPro = await api("PUT", "/v1/script", { rules: [{ then: { outcome: "decline" } }] });
+    assert.equal(noPro.status, 402); assert.equal(noPro.body.error.code, "pro_required");
+    assert.equal((await api("GET", "/v1/script")).body.pro, false);
+    // confirming an email starts the trial, once per address and once per account
+    const v1 = await verifyEmail("trial1@example.test");
+    assert.equal(v1.status, 200); assert.ok(Date.parse(v1.body.trial_ends) - Date.now() > 13.9 * 864e5);
+    u = (await api("GET", "/v1/usage")).body;
+    assert.equal(u.plan, "pro"); assert.equal(u.plan_source, "trial"); assert.equal(u.trial_days_left, 14); assert.equal(u.limit, 20000); assert.equal(u.trial_available, false);
+    assert.equal((await verifyEmail("trial1b@example.test")).body.trial_ends, null, "same account never gets a second trial");
+    await api("DELETE", "/v1/account/email");
+    const other = await api("POST", "/v1/accounts"); const trialKey = key; key = other.body.api_key;
+    assert.equal((await verifyEmail("trial1@example.test")).body.trial_ends, null, "same address never gets a second trial");
+    assert.equal((await api("GET", "/v1/usage")).body.plan, "free");
+    key = trialKey;
+
+    // script validation
+    const bads = [
+      [{}, "invalid_script"], [{ rules: "x" }, "invalid_script"], [{ rules: [{ when: { nth: 0 }, then: { outcome: "decline" } }] }, "invalid_script"],
+      [{ rules: [{ then: {} }] }, "invalid_script"], [{ rules: [{ then: { outcome: "boom" } }] }, "invalid_script"],
+      [{ rules: [{ when: { colour: "red" }, then: { outcome: "decline" } }] }, "invalid_script"], [{ rules: [{ then: { latency_ms: 99999 } }] }, "invalid_script"],
+      [{ rules: [{ then: { http_error: 418 } }] }, "invalid_script"], [{ rules: [{ then: { webhook: { duplicate: 9 } } }] }, "invalid_script"],
+      [{ rules: Array(21).fill({ then: { outcome: "decline" } }) }, "invalid_script"],
+    ];
+    for (const [body, code] of bads) { const r = await api("PUT", "/v1/script", body); assert.equal(r.status, 400, JSON.stringify(body)); assert.equal(r.body.error.code, code); }
+
+    // outcomes: nth, every, amount, probability
+    const wh2 = await api("PUT", "/v1/webhook", { url: `http://127.0.0.1:${HOOK}/hook` }); secret = wh2.body.secret;
+    const pay = (extra = {}) => api("POST", "/v1/payments", card("4111111111111111", extra));
+    assert.equal((await api("PUT", "/v1/script", { rules: [
+      { name: "second fails", when: { nth: 2 }, then: { outcome: "nsf" } },
+      { when: { every: 3 }, then: { outcome: "decline" } },
+      { when: { amount_gte: 500 }, then: { outcome: "expired" } },
+    ] })).status, 200);
+    const seq = [];
+    for (const amt of [10, 10, 10, 10, 10, 10, 600]) seq.push((await pay({ amount: amt })).body);
+    assert.deepEqual(seq.map((p) => p.transaction_state), ["success", "failed", "failed", "success", "success", "failed", "failed"]);
+    assert.deepEqual(seq.map((p) => p.script_rule || null), [null, 1, 2, null, null, 2, 3]);
+    assert.equal(seq[1].status.code, "SBX-4051"); assert.equal(seq[6].status.code, "SBX-4054");
+    assert.equal((await api("GET", "/v1/script")).body.requests_counted, 7);
+    // a script outcome of 3ds only applies where 3DS is possible
+    await api("PUT", "/v1/script", { rules: [{ then: { outcome: "3ds_Y" } }] });
+    const sy = await pay(); assert.equal(sy.status, 201); assert.equal(sy.body.authentication.trans_status, "Y");
+    const rf = await api("POST", "/v1/payments", { request_id: "rf1", method: "card", transaction_type: "refund", amount: 1, parent_transaction_id: sy.body.id });
+    assert.equal(rf.status, 201); assert.equal(rf.body.transaction_state, "success", "3ds rule ignored for a refund");
+
+    // injected HTTP errors do not create payments or use up quota
+    await api("PUT", "/v1/script", { rules: [{ when: { nth: 1 }, then: { http_error: 503 } }] });
+    const usedBefore = (await api("GET", "/v1/usage")).body.used, countBefore = (await api("GET", "/v1/payments?limit=100")).body.data.length;
+    const inj = await pay({ request_id: "inj-1" });
+    assert.equal(inj.status, 503); assert.equal(inj.body.error.script_rule, 1);
+    assert.equal((await api("GET", "/v1/usage")).body.used, usedBefore); assert.equal((await api("GET", "/v1/payments?limit=100")).body.data.length, countBefore);
+    const again = await pay({ request_id: "inj-1" }); assert.equal(again.status, 201, "same request_id works on retry");
+    // latency
+    await api("PUT", "/v1/script", { rules: [{ then: { latency_ms: 400 } }] });
+    const t0 = Date.now(); const slow = await pay(); assert.equal(slow.status, 201); assert.ok(Date.now() - t0 >= 380, "latency applied");
+    await api("PUT", "/v1/script", { rules: [{ when: { probability: 0 }, then: { outcome: "decline" } }, { when: { probability: 1 }, then: { outcome: "nsf" } }] });
+    assert.equal((await pay()).body.status.code, "SBX-4051");
+
+    // webhook behaviours
+    const waitFor = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { const r = fn(); if (r) return r; await sleep(50); } return null; };
+    hooks.length = 0;
+    await api("PUT", "/v1/script", { rules: [{ then: { outcome: "approve", webhook: { duplicate: 2 } } }] });
+    const dp = await pay();
+    await waitFor(() => hooks.filter((h) => h.body.data.id === dp.body.id).length >= 3);
+    const dups = hooks.filter((h) => h.body.data.id === dp.body.id);
+    assert.equal(dups.length, 3); assert.equal(new Set(dups.map((h) => h.body.id)).size, 1, "duplicates share one event id"); assert.ok(dups.every((h) => h.ok));
+    hooks.length = 0;
+    await api("PUT", "/v1/script", { rules: [{ then: { webhook: { bad_signature: true } } }] });
+    const bp = await pay(); await waitFor(() => hooks.some((h) => h.body.data.id === bp.body.id));
+    assert.equal(hooks.find((h) => h.body.data.id === bp.body.id).ok, false, "signature is deliberately wrong");
+    hooks.length = 0;
+    await api("PUT", "/v1/script", { rules: [{ then: { webhook: { drop: true } } }] });
+    const dr = await pay(); await sleep(900);
+    assert.equal(hooks.filter((h) => h.body.data.id === dr.body.id).length, 0, "dropped webhook never arrives");
+    const dl0 = (await api("GET", "/v1/webhook/deliveries")).body.data[0];
+    assert.ok(dl0.flags.includes("dropped") && dl0.delivered === false);
+    hooks.length = 0;
+    await api("PUT", "/v1/script", { rules: [{ then: { webhook: { delay_ms: 700 } } }] });
+    const dd = await pay(); await sleep(600);
+    assert.equal(hooks.filter((h) => h.body.data.id === dd.body.id).length, 0, "not yet delivered");
+    assert.ok(await waitFor(() => hooks.some((h) => h.body.data.id === dd.body.id)), "delivered after the delay");
+    await api("DELETE", "/v1/script"); assert.equal((await api("GET", "/v1/script")).body.rules.length, 0);
+
+    // inspector and replay
+    const good = await pay(); await waitFor(() => hooks.some((h) => h.body.data.id === good.body.id));
+    const list = (await api("GET", "/v1/webhook/deliveries")).body.data;
+    const row = list.find((d) => d.event_type === "payment.succeeded" && d.event_id === hooks.find((h) => h.body.data.id === good.body.id).body.id);
+    assert.ok(row.id.startsWith("dlv_")); assert.equal(row.event, undefined, "list stays light"); assert.equal(row.delivered, true);
+    const one = (await api("GET", `/v1/webhook/deliveries/${row.id}`)).body;
+    assert.equal(one.event.data.id, good.body.id); assert.equal(one.attempts[0].status, 200); assert.ok(typeof one.attempts[0].ms === "number");
+    assert.equal((await api("GET", "/v1/webhook/deliveries/dlv_000000")).status, 404);
+    hooks.length = 0;
+    const rp = await api("POST", `/v1/webhook/deliveries/${row.id}/replay`); assert.equal(rp.status, 202);
+    const got = await waitFor(() => hooks[0]); assert.equal(got.body.id, one.event.id, "same event id"); assert.equal(got.replay, true); assert.ok(got.ok, "fresh valid signature");
+    await sleep(200);
+    const afterRp = (await api("GET", "/v1/webhook/deliveries")).body.data;
+    assert.equal(afterRp[0].replay_of, row.id); assert.ok(afterRp[0].flags.includes("replay"));
+    assert.equal((await api("POST", "/v1/webhook/deliveries/dlv_000000/replay")).status, 404);
+    key = other.body.api_key;
+    assert.equal((await api("POST", `/v1/webhook/deliveries/${row.id}/replay`)).body.error.code, "pro_required", "free plan cannot replay");
+
+    // trial expiry: a second server with a very short trial
+    {
+      const P2 = 18084, BASE2 = `http://127.0.0.1:${P2}`;
+      const srv2 = spawn("node", ["server.js"], { env: { ...process.env, PORT: P2, DATA_FILE: `/tmp/dryrun-test2-${Date.now()}.json`, TRIAL_DAYS: "0.00003", SIGNUPS_PER_HOUR: "50", MAIL_IP_PER_HOUR: "100", EMAIL_API_KEY: "re_test", EMAIL_FROM: "Z <a@example.test>", EMAIL_API_BASE: `http://127.0.0.1:${MAIL_PORT}`, PUBLIC_URL: "https://example.test" }, stdio: "ignore" });
+      try {
+        for (let i = 0; i < 50; i++) { try { await fetch(BASE2 + "/health"); break; } catch { await sleep(100); } }
+        const call = async (method, path, body, k) => { const r = await fetch(BASE2 + path, { method, headers: { "content-type": "application/json", ...(k ? { authorization: `Bearer ${k}` } : {}) }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+        const a2 = await call("POST", "/v1/accounts"); const k2 = a2.body.api_key;
+        await call("POST", "/v1/account/email", { email: "short@example.test" }, k2); await sleep(200);
+        const vv = await call("POST", "/v1/email/verify", { token: lastLink("verify") }); assert.ok(vv.body.trial_ends);
+        assert.equal((await call("PUT", "/v1/script", { rules: [{ then: { outcome: "decline" } }] }, k2)).status, 200);
+        await sleep(3200);
+        const uu = (await call("GET", "/v1/usage", null, k2)).body;
+        assert.equal(uu.plan, "free"); assert.equal(uu.plan_source, "free"); assert.equal(uu.script_active, false); assert.equal(uu.limit, 200);
+        assert.equal((await call("PUT", "/v1/script", { rules: [{ then: { outcome: "decline" } }] }, k2)).status, 402);
+        const np = await call("POST", "/v1/payments", card("4111111111111111"), k2);
+        assert.equal(np.body.transaction_state, "success", "a stored script is not applied once the trial has ended");
+      } finally { srv2.kill(); }
+    }
 
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
