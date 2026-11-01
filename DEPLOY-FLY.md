@@ -142,7 +142,7 @@ Safeguards that stay on: 5 signups per hour per IP address, at most 2000 account
 
 Accounts can add a confirmed email address and later sign in with a one-time link if they lose their API key. It needs an email provider. The code uses the Resend HTTP API (free tier: 3,000 emails a month).
 
-1. Create an account at resend.com, add the domain `zanboxx.com` under Domains, and add the DNS records it shows you at Namecheap (Advanced DNS, mostly TXT and MX records). Wait until Resend shows the domain as Verified.
+1. Create an account at resend.com, add the domain `zanboxx.com` under Domains, and add the DNS records it shows you at Namecheap (Advanced DNS). Currently these are a TXT record for DKIM (`resend._domainkey`), two CNAME records (`rsend` and `send`) and an optional TXT `_dmarc` record. Copy every value with Resend's copy buttons and enter only the short host name. Wait until Resend shows the domain as Verified.
 2. Create an API key in Resend (permission: sending access).
 3. Set the secrets:
    ```
