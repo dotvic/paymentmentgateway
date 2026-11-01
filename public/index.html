@@ -3,21 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>DryRun – break your payment flow before customers do</title>
+<title>Sandcastle – build, bounce and break payment flows in a safe sandbox</title>
 <meta name="description" content="A sandbox payment gateway API. Test declines, 3D Secure, timeouts and signed webhooks with no real money and no real cards.">
 <style>
 :root{
-  --paper:#eef1f7;--panel:#fff;--ink:#0f1b33;--mute:#56637f;--line:#d3dae8;
-  --accent:#3347e8;--accent-ink:#fff;--ok:#0e7a52;--bad:#c2342a;--wait:#a15c00;
-  --term:#0f1b33;--term-ink:#e8eeff;--term-mute:#8c9bc0;--term-ok:#5be0a8;--term-bad:#ff8f84;--term-wait:#f5c05a;
+  --paper:#fff7ec;--panel:#fff;--ink:#241a3d;--mute:#5f5578;--line:#eadfcb;
+  --accent:#6a3df0;--accent-ink:#fff;--ok:#0b7d57;--bad:#c9293f;--wait:#a35a00;
+  --coral:#ff6b57;--sun:#ffc23d;--mint:#2fd1a4;--sky:#38b6ff;--grape:#6a3df0;--pink:#ff4fa3;
+  --term:#1d1440;--term-ink:#f1ecff;--term-mute:#8c9bc0;--term-ok:#5be0a8;--term-bad:#ff8f84;--term-wait:#f5c05a;
   --r:10px;
   padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;
-  --accent:#8191ff;--accent-ink:#0b1120;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#070c18;
+  color-scheme:dark;--paper:#150e2b;--panel:#201740;--ink:#f3eefc;--mute:#b3a8d1;--line:#3a2d66;
+  --accent:#a68bff;--accent-ink:#150e2b;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#0e0820;
 }}
-:root[data-theme="dark"]{color-scheme:dark;--paper:#0b1120;--panel:#131b2f;--ink:#e6ecfa;--mute:#93a0bd;--line:#26314d;--accent:#8191ff;--accent-ink:#0b1120;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#070c18}
+:root[data-theme="dark"]{color-scheme:dark;--paper:#150e2b;--panel:#201740;--ink:#f3eefc;--mute:#b3a8d1;--line:#3a2d66;--accent:#a68bff;--accent-ink:#150e2b;--ok:#3dd598;--bad:#ff8577;--wait:#f2b24c;--term:#0e0820}
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
@@ -117,18 +118,63 @@ table.fields td:first-child{white-space:nowrap;word-break:normal}
 .hidden{display:none!important}
 .sr{position:absolute;left:-9999px}
 @media(prefers-reduced-motion:no-preference){.flash{animation:fl .6s ease-out}@keyframes fl{from{box-shadow:0 0 0 3px var(--accent)}}}
+
+/* ---- Sandcastle look ---- */
+body{background-color:var(--paper);background-image:radial-gradient(900px 500px at 90% -80px,rgba(255,107,87,.18),transparent 70%),radial-gradient(800px 500px at -10% 120px,rgba(56,182,255,.16),transparent 70%);background-repeat:no-repeat;font-family:ui-rounded,"Avenir Next","Trebuchet MS",system-ui,-apple-system,"Segoe UI",sans-serif}
+.brand{display:inline-flex;align-items:center;gap:10px;font-size:22px;font-weight:800;letter-spacing:-.03em}
+.brand svg{width:34px;height:34px;flex:none}
+.brand span{background:linear-gradient(90deg,var(--coral),var(--pink) 45%,var(--grape));-webkit-background-clip:text;background-clip:text;color:transparent}
+nav a{font-weight:600}
+nav a:nth-child(5n+1):hover{color:var(--coral)}nav a:nth-child(5n+2):hover{color:var(--grape)}nav a:nth-child(5n+3):hover{color:var(--pink)}nav a:nth-child(5n+4):hover{color:var(--sky)}nav a:nth-child(5n):hover{color:var(--ok)}
+.hero{position:relative;margin-top:8px;padding:clamp(32px,6vw,68px) clamp(20px,5vw,56px);border-radius:28px;color:#fff;overflow:hidden;background:linear-gradient(125deg,#ff6b57 0%,#ff4fa3 38%,#6a3df0 78%,#3b6cff 100%)}
+.hero::before,.hero::after{content:"";position:absolute;border-radius:50%;pointer-events:none}
+.hero::before{width:340px;height:340px;right:-80px;top:-110px;background:rgba(255,194,61,.55);filter:blur(2px)}
+.hero::after{width:220px;height:220px;right:18%;bottom:-120px;background:rgba(47,209,164,.5)}
+.hero>*{position:relative;z-index:1}
+.hero h1{color:#fff;text-shadow:0 2px 18px rgba(36,26,61,.25)}
+.hero .lede{color:rgba(255,255,255,.92)}
+.hero .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+.hero .pills span{background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.45);padding:5px 12px;border-radius:99px;font-size:14px;font-weight:600;backdrop-filter:blur(4px)}
+section.block{border-top:0}
+section.block>h2{display:inline-block;padding-bottom:4px;background:linear-gradient(90deg,var(--c1,var(--coral)),var(--c2,var(--pink))) left bottom/100% 5px no-repeat}
+#lab{--c1:var(--grape);--c2:var(--sky)}#cards{--c1:var(--sun);--c2:var(--coral)}#webhooks{--c1:var(--mint);--c2:var(--sky)}#api{--c1:var(--pink);--c2:var(--grape)}#plans{--c1:var(--coral);--c2:var(--sun)}
+.card{border-radius:18px;border:1px solid var(--line);box-shadow:0 1px 0 rgba(36,26,61,.04),0 10px 28px -16px rgba(106,61,240,.35)}
+.console>.card:first-child,.plans .card:first-child{border-top:5px solid var(--sky)}
+.console>.card:nth-child(2){border-top:5px solid var(--pink)}
+#lab .console>.card:first-child{border-top-color:var(--grape)}#lab .console>.card:nth-child(2){border-top-color:var(--mint)}
+.plans .card:nth-child(2){border-top:5px solid var(--coral);background:linear-gradient(180deg,rgba(255,194,61,.16),transparent 55%),var(--panel)}
+button{border-radius:12px;font-weight:600}
+button.primary{background:linear-gradient(120deg,var(--coral),var(--pink) 55%,var(--grape));border-color:transparent;color:#fff;box-shadow:0 8px 18px -8px rgba(255,79,163,.7);transition:transform .12s}
+button.primary:hover:not(:disabled){transform:translateY(-1px);border-color:transparent}
+input,select{border-radius:12px;border-width:2px}
+input:focus,select:focus{border-color:var(--grape)}
+.chips label{border-width:2px;font-weight:600}
+.chips label:nth-of-type(6n+1){border-color:var(--coral)}.chips label:nth-of-type(6n+2){border-color:var(--grape)}.chips label:nth-of-type(6n+3){border-color:var(--pink)}.chips label:nth-of-type(6n+4){border-color:var(--sky)}.chips label:nth-of-type(6n+5){border-color:var(--sun)}.chips label:nth-of-type(6n){border-color:var(--mint)}
+.chips input:checked+label{background:linear-gradient(120deg,var(--grape),var(--pink));color:#fff;border-color:transparent}
+.badge{font-weight:700}
+th{color:var(--grape);font-weight:700}
+.tl{border-left:3px solid transparent;border-image:linear-gradient(180deg,var(--coral),var(--pink),var(--grape),var(--sky),var(--mint)) 1}
+.tl-phase{color:var(--grape);text-transform:uppercase;letter-spacing:.06em;font-size:12px}
+.tl-item::before{border-color:var(--grape);background:var(--sun)}
+.tl-item.k-decision::before{border-color:var(--wait)}.tl-item.k-stop::before{border-color:var(--bad);background:var(--bad)}
+.sumgrid>div:nth-child(5n+1){border-top:4px solid var(--coral)}.sumgrid>div:nth-child(5n+2){border-top:4px solid var(--sun)}.sumgrid>div:nth-child(5n+3){border-top:4px solid var(--mint)}.sumgrid>div:nth-child(5n+4){border-top:4px solid var(--sky)}.sumgrid>div:nth-child(5n){border-top:4px solid var(--pink)}
+.chal{background:rgba(255,194,61,.18);border-color:var(--sun);border-width:2px}
+.term .h{color:var(--sun)}
+footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var(--mint),var(--sky),var(--grape),var(--pink)) top/100% 5px no-repeat}
+@media(max-width:600px){.hero{border-radius:20px}}
 </style>
 </head>
 <body>
 <div class="wrap">
 <header class="top">
-  <a class="brand" href="/">DryRun</a>
+  <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Sandcastle</span></a>
   <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
-  <h1>Break your payment flow before customers do.</h1>
+  <h1>Build a payment flow. Knock it down. Build it better.</h1>
   <p class="lede">A sandbox payment gateway with a real API. Trigger declines, 3D Secure challenges, timeouts and signed webhooks on demand. No real money and no real cards, ever.</p>
+  <div class="pills"><span>Declines on demand</span><span>3-D Secure lab</span><span>Signed webhooks</span><span>No real money</span></div>
 </section>
 
 <section id="try" style="padding-bottom:36px">
@@ -230,7 +276,7 @@ exactly like the list under "Test cards" below.</pre>
 
 <section class="block" id="webhooks">
   <h2>Webhooks</h2>
-  <p class="sub">Register a URL and DryRun posts a signed event whenever a payment succeeds or fails. Failed deliveries are retried after 2, 10 and 30 seconds.</p>
+  <p class="sub">Register a URL and Sandcastle posts a signed event whenever a payment succeeds or fails. Failed deliveries are retried after 2, 10 and 30 seconds.</p>
   <div class="grid2">
     <div class="card">
       <h3>Endpoint</h3>
@@ -313,8 +359,8 @@ curl -X POST <span class="base"></span>/v1/payments/tx_.../3ds \
 </section>
 
 <footer>
-  <p style="margin:0 0 6px"><strong style="color:var(--ink)">DryRun is a sandbox.</strong> It never moves money. Do not enter real card numbers, only the test cards above.</p>
-  <p style="margin:0 0 6px">DryRun is an independent project and is not affiliated with any payment provider.</p>
+  <p style="margin:0 0 6px"><strong style="color:var(--ink)">Sandcastle is a sandbox.</strong> It never moves money. Do not enter real card numbers, only the test cards above.</p>
+  <p style="margin:0 0 6px">Sandcastle is an independent project and is not affiliated with any payment provider.</p>
   <p style="margin:0"><a href="/terms">Terms of service</a> &nbsp; <a href="/privacy">Privacy policy</a></p>
 </footer>
 </div>
@@ -400,7 +446,7 @@ $("#create").onclick = async function () {
 $("#useKey").onclick = async function () {
   $("#signupErr").textContent = "";
   var k = $("#pasteKey").value.trim(), old = key;
-  if (!/^sk_test_[a-f0-9]+$/.test(k)) { $("#signupErr").textContent = "That does not look like a DryRun key. It starts with sk_test_."; return; }
+  if (!/^sk_test_[a-f0-9]+$/.test(k)) { $("#signupErr").textContent = "That does not look like a Sandcastle key. It starts with sk_test_."; return; }
   key = k;
   var r = await api("GET", "/v1/usage");
   if (r.status === 200) { setKey(k, false); } else { key = old; $("#signupErr").textContent = errMsg(r); }
