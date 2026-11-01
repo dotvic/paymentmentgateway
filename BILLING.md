@@ -1,6 +1,6 @@
 # Billing, legal pages and account deletion
 
-Sandcastle sells one paid plan, **Pro**, as a monthly subscription through Stripe Checkout. Stripe handles cards, VAT invoices and cancellations, so card data never touches this server.
+Zandboxx sells one paid plan, **Pro**, as a monthly subscription through Stripe Checkout. Stripe handles cards, VAT invoices and cancellations, so card data never touches this server.
 
 Billing switches on only when all three Stripe secrets are set. Until then the Pro card on the website says "Not open yet".
 
@@ -26,7 +26,7 @@ Have a lawyer review both pages. They are a sensible starting point written for 
 ## 2. Set up Stripe (test mode first)
 
 1. Create an account at https://dashboard.stripe.com and switch on **Test mode** (top right).
-2. **Product:** Product catalogue → Add product → name it "Sandcastle Pro", add a recurring monthly price (for example EUR 19). Copy the **Price ID** (starts with `price_`).
+2. **Product:** Product catalogue → Add product → name it "Zandboxx Pro", add a recurring monthly price (for example EUR 19). Copy the **Price ID** (starts with `price_`).
 3. **Customer portal:** Settings → Billing → Customer portal → turn it on, and allow customers to cancel subscriptions. Without this, "Manage billing" fails.
 4. **API key:** Developers → API keys. Either use the secret key (`sk_test_...`), or better, create a **restricted key** with write access to *Checkout Sessions*, *Customer portal* and *Subscriptions*.
 5. **Webhook:** Developers → Webhooks → Add endpoint.
