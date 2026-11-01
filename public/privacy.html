@@ -58,6 +58,7 @@ tr:last-child td{border-bottom:0}
 <h2>4. Who receives data</h2>
 <ul>
 <li><strong>Fly.io, Inc.</strong>, our hosting provider. The service and its data volume run in Amsterdam, in the Netherlands (EU). Fly.io may process technical data such as IP addresses in network logs.</li>
+<li><strong>Our backup storage provider</strong> ({{BACKUPHOST}}), which stores the encrypted backup copies. It cannot read them: they are encrypted with a key it does not have.</li>
 <li><strong>Our email provider</strong> ({{MAILER}}), only if you use email recovery. It delivers the confirmation and sign-in emails and therefore receives your email address and the link we send.</li>
 <li><strong>Stripe</strong> (Stripe Payments Europe, Ltd. and affiliates), only if you subscribe to Pro. Stripe is an independent controller for the payment and identity data it collects and has its own <a href="https://stripe.com/privacy" rel="noopener noreferrer">privacy policy</a>.</li>
 <li><strong>The webhook URL you register</strong> receives the notification events about your own test payments. You choose that destination.</li>
@@ -75,7 +76,7 @@ tr:last-child td{border-bottom:0}
 <li>Free accounts that have not been used for {{DAYS}} days are deleted automatically.</li>
 <li>Pro accounts: while the subscription is active.</li>
 <li>Invoices and payment records are kept by Stripe and by us for as long as tax and accounting law requires (often several years). Deleting your Zanboxx account does not delete these.</li>
-<li>Hosting snapshots and backups can keep deleted data for a few days before it is overwritten.</li>
+<li>Backups: we copy the database several times a day for disaster recovery. Copies are encrypted, kept for about seven days and then overwritten. Data you delete, or that is removed by the rules above, can therefore remain in backups for up to about seven days. Backups are used only to restore the service after a failure.</li>
 </ul>
 
 <h2>7. Your rights</h2>

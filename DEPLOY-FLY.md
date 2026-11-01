@@ -151,3 +151,50 @@ Accounts can add a confirmed email address and later sign in with a one-time lin
 4. Redeploy. The recovery boxes appear on the page once `EMAIL_API_KEY` and `EMAIL_FROM` are set; without them the feature stays hidden and the rest works as before.
 
 Limits: 3 sign-in emails per address per hour, 10 requests per IP per hour (`MAIL_IP_PER_HOUR`). Links expire after 15 minutes (sign-in) or 1 hour (confirmation) and work once. If you use another provider, set `EMAIL_API_BASE` to an API with the same `POST /emails` shape or tell me and I will adapt it.
+
+## Database and backups (SQLite)
+
+Data now lives in a SQLite database (`/data/zanboxx.db`) instead of one JSON file. Writes are transactional, so a crash or a deploy can no longer corrupt the data, and the app saves everything before it exits.
+
+**First start after upgrading:** the app imports `/data/data.json` into the new database automatically and renames the old file to `data.json.migrated`. Nothing else to do. To go back to an older version afterwards, rename `data.json.migrated` back to `data.json` (anything created after the upgrade is lost on a rollback).
+
+### Set up off-site backups (recommended, takes five minutes)
+
+Local snapshots on the same volume protect against mistakes and bad deploys, but not against losing the volume. Fly's own object storage (Tigris) gives you an off-site copy:
+
+1. Create a bucket. This also sets the secrets `AWS_ENDPOINT_URL_S3`, `BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_REGION` for you:
+   ```
+   fly storage create --app paymentmentgateway --name zanboxx-backups
+   ```
+2. Choose an encryption passphrase (long and random) and **save it in your password manager**. Without it the off-site backups cannot be read. Then set it, together with a token for the admin page:
+   ```
+   fly secrets set BACKUP_PASSPHRASE="your-long-random-passphrase" ADMIN_TOKEN="another-long-random-string" --app paymentmentgateway
+   ```
+3. Redeploy. A backup runs about a minute after start and then every 6 hours: a local snapshot (the newest 8 are kept) and an encrypted copy in the bucket (a rolling set covering the last 7 days).
+
+Settings (all optional): `BACKUP_EVERY_HOURS` (default 6, `0` turns scheduled backups off), `BACKUP_KEEP` (local snapshots, default 8).
+
+### Check that backups work
+
+```
+curl.exe -H "Authorization: Bearer YOUR_ADMIN_TOKEN" https://zanboxx.com/admin/status
+```
+shows the account count, database size, the time of the last local and off-site backup, and the last error if there was one. `POST /admin/backup` with the same header runs a backup now. Check this once a week, or after any change to the secrets.
+
+### Restore a backup
+
+1. Open a shell on the machine: `fly ssh console --app paymentmentgateway`
+2. List what exists: `node backup.js list`
+3. Check one first (optional): `node backup.js verify zanboxx/slot-03.db.gz.enc`
+4. Stage the one you want: `node backup.js restore zanboxx/slot-03.db.gz.enc` (or a local file such as `/data/backups/zanboxx-....db`).
+5. Leave the shell and restart the machine: `fly machine restart <machine-id> --app paymentmentgateway`. At start-up the current database is moved aside as `zanboxx.db.before-restore-<time>` and the backup takes its place.
+
+If the shell does not show your secrets, run `printenv | grep -E "AWS|BUCKET|BACKUP"` first; the restore needs `BACKUP_PASSPHRASE` and the storage settings.
+
+### Also on by default
+
+Fly takes a daily snapshot of the volume (`fly volumes snapshots list --app paymentmentgateway`) and keeps it for a few days. That is a second, independent safety net.
+
+### Limits of this setup
+
+One machine and one volume: if the machine is down, the site is down until it comes back. The database is fine up to many thousands of accounts. If you later need several machines, move to a hosted PostgreSQL; the storage code is in one file (`store.js`) for that reason.

@@ -436,7 +436,118 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       } finally { srv2.kill(); }
     }
 
+    // ---- storage: SQLite, graceful shutdown, migration from the old JSON file, backups, restore ----
+    {
+      const fs = require("fs"), os = require("os"), path = require("path"), zlib = require("zlib");
+      // The mock S3 runs in this process, so command-line tools must run asynchronously or they would wait on a blocked event loop.
+      const spawnSync = (cmd, args, o = {}) => new Promise((resolve) => {
+        const c = spawn(cmd, args, { env: o.env }); let stdout = "", stderr = ""; c.stdout.on("data", (d) => (stdout += d)); c.stderr.on("data", (d) => (stderr += d));
+        const t = setTimeout(() => c.kill("SIGKILL"), o.timeout || 30000); c.on("exit", (status) => { clearTimeout(t); resolve({ status, stdout, stderr }); });
+      });
+      const B = require("./backup"), { validateDbFile } = require("./store");
+      // AWS's published SigV4 example: the signature must match exactly
+      const vec = B.signV4({ method: "GET", url: new URL("https://examplebucket.s3.amazonaws.com/test.txt"), headers: { range: "bytes=0-9" }, payloadHash: crypto.createHash("sha256").update("").digest("hex"), region: "us-east-1", accessKey: "AKIAIOSFODNN7EXAMPLE", secretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", date: new Date("2013-05-24T00:00:00Z") });
+      assert.ok(vec.authorization.endsWith("Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41"), "SigV4 matches the AWS example");
+      const enc = B.encrypt(Buffer.from("hello"), "pw");
+      assert.equal(B.decrypt(enc, "pw").toString(), "hello");
+      assert.throws(() => B.decrypt(enc, "wrong"), /wrong passphrase/);
+
+      // a mock S3 that checks every signature
+      const S3 = { objects: new Map(), fail: false, badSig: 0 }, S3_PORT = 18086, KEYID = "AKIATEST", SECRET = "s3secretvalue";
+      const mockS3 = http.createServer((req, res) => {
+        const chunks = []; req.on("data", (c) => chunks.push(c)); req.on("end", () => {
+          const body = Buffer.concat(chunks), url = new URL(`http://${req.headers.host}${req.url}`);
+          const amz = req.headers["x-amz-date"], date = new Date(amz.replace(/^(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)Z$/, "$1-$2-$3T$4:$5:$6Z"));
+          const want = B.signV4({ method: req.method, url, payloadHash: req.headers["x-amz-content-sha256"], region: "auto", accessKey: KEYID, secretKey: SECRET, date }).authorization;
+          if (want !== req.headers.authorization || crypto.createHash("sha256").update(body).digest("hex") !== req.headers["x-amz-content-sha256"]) { S3.badSig++; res.writeHead(403); return res.end("SignatureDoesNotMatch"); }
+          if (S3.fail) { res.writeHead(500); return res.end("boom"); }
+          const p = decodeURIComponent(url.pathname).replace(/^\/bkt\/?/, "");
+          if (req.method === "PUT") { S3.objects.set(p, body); res.writeHead(200); return res.end(); }
+          if (req.method === "GET" && !p) {
+            res.writeHead(200); return res.end("<ListBucketResult>" + [...S3.objects].map(([k, v]) => `<Contents><Key>${k}</Key><LastModified>2026-11-01T10:00:00.000Z</LastModified><Size>${v.length}</Size></Contents>`).join("") + "</ListBucketResult>");
+          }
+          if (req.method === "GET" && S3.objects.has(p)) { res.writeHead(200); return res.end(S3.objects.get(p)); }
+          res.writeHead(404); res.end("NoSuchKey");
+        });
+      }).listen(S3_PORT); global.__mockS3 = mockS3;
+
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "zbx-")), PORT3 = 18085, B3 = `http://127.0.0.1:${PORT3}`;
+      const env3 = { PORT: PORT3, DATA_FILE: path.join(dir, "data.json"), DB_FILE: path.join(dir, "z.db"), ADMIN_TOKEN: "admintoken123", BACKUP_EVERY_HOURS: "0", BACKUP_KEEP: "2",
+        BACKUP_PASSPHRASE: "correct horse", AWS_ENDPOINT_URL_S3: `http://127.0.0.1:${S3_PORT}`, BUCKET_NAME: "bkt", AWS_ACCESS_KEY_ID: KEYID, AWS_SECRET_ACCESS_KEY: SECRET, AWS_REGION: "auto", SIGNUPS_PER_HOUR: "50" };
+      const start = async () => { const p = spawn("node", ["server.js"], { env: { ...process.env, ...env3 }, stdio: "ignore" }); for (let i = 0; i < 80; i++) { try { await fetch(B3 + "/health"); return p; } catch { await sleep(100); } } throw new Error("server did not start"); };
+      const stop = (p) => new Promise((r) => { p.once("exit", (code) => r(code)); p.kill("SIGTERM"); });
+      const call = async (method, p, body, k, extra = {}) => { const r = await fetch(B3 + p, { method, headers: { "content-type": "application/json", ...(k ? { authorization: `Bearer ${k}` } : {}), ...extra }, body: body && JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
+
+      // 1. migration from the old JSON file
+      const legacyKey = "sk_test_" + "ab".repeat(24);
+      fs.writeFileSync(env3.DATA_FILE, JSON.stringify({ accounts: { acct_old: { id: "acct_old", plan: "free", created_at: "2026-01-01T00:00:00Z", usage: { month: "", count: 0 }, payments: [], deliveries: [], webhook: null } }, keys: { [crypto.createHash("sha256").update(legacyKey).digest("hex")]: "acct_old" } }));
+      let p3 = await start();
+      assert.equal((await call("GET", "/v1/usage", null, legacyKey)).status, 200, "old account still works after migration");
+      assert.ok(!fs.existsSync(env3.DATA_FILE) && fs.existsSync(env3.DATA_FILE + ".migrated"), "old JSON file kept under a new name");
+
+      // 2. an immediate shutdown still saves the last request
+      const na = await call("POST", "/v1/accounts"); const nk = na.body.api_key;
+      const made = await call("POST", "/v1/payments", card("4111111111111111"), nk); assert.equal(made.status, 201);
+      assert.equal(await stop(p3), 0, "clean exit on SIGTERM");
+      p3 = await start();
+      const list3 = await call("GET", "/v1/payments", null, nk);
+      assert.equal(list3.body.data.length, 1, "payment survived a restart"); assert.equal(list3.body.data[0].id, made.body.id);
+      assert.equal((await call("GET", "/v1/usage", null, legacyKey)).status, 200);
+
+      // 3. admin endpoint is locked
+      assert.equal((await call("GET", "/admin/status")).status, 401);
+      assert.equal((await call("GET", "/admin/status", null, "nope")).status, 401);
+      const st = await call("GET", "/admin/status", null, env3.ADMIN_TOKEN);
+      assert.equal(st.status, 200); assert.equal(st.body.accounts, 2); assert.equal(st.body.backups.offsite, true); assert.equal(st.body.backups.encrypted, true);
+
+      // 4. manual backup: local snapshot, encrypted off-site copy, retention
+      const bk = await call("POST", "/admin/backup", null, env3.ADMIN_TOKEN);
+      assert.equal(bk.status, 200); assert.equal(bk.body.ok, true);
+      assert.equal(validateDbFile(bk.body.file).accounts, 2, "local snapshot is a valid database");
+      assert.equal(S3.badSig, 0, "every upload was correctly signed");
+      const [offKey, offBody] = [...S3.objects][0];
+      assert.ok(/^zanboxx\/slot-\d\d\.db\.gz\.enc$/.test(offKey), offKey); assert.ok(offBody.subarray(0, 4).equals(Buffer.from("ZBX1")), "off-site copy is encrypted");
+      assert.ok(!offBody.includes("SQLite format"), "no plain database inside");
+      for (let i = 0; i < 3; i++) await call("POST", "/admin/backup", null, env3.ADMIN_TOKEN);
+      assert.equal(fs.readdirSync(path.join(dir, "backups")).filter((f) => f.endsWith(".db")).length, 2, "only the newest 2 local snapshots are kept");
+      // an off-site outage does not stop the local backup, and is reported
+      S3.fail = true;
+      const bad2 = await call("POST", "/admin/backup", null, env3.ADMIN_TOKEN);
+      assert.equal(bad2.status, 200); assert.equal(bad2.body.ok, false); assert.ok(bad2.body.warning.includes("off-site")); assert.ok(fs.existsSync(bad2.body.file));
+      assert.ok((await call("GET", "/admin/status", null, env3.ADMIN_TOKEN)).body.backups.last_error.includes("off-site"));
+      S3.fail = false;
+      assert.equal((await call("POST", "/admin/backup", null, env3.ADMIN_TOKEN)).body.ok, true);
+      assert.equal((await call("GET", "/admin/status", null, env3.ADMIN_TOKEN)).body.backups.last_error, null, "error clears after a good backup");
+
+      // 5. disaster and restore from the off-site copy
+      assert.equal((await call("DELETE", "/v1/account", { confirm: true }, nk)).status, 200);
+      assert.equal((await call("GET", "/v1/usage", null, nk)).status, 401);
+      const cliEnv = { ...process.env, ...env3 };
+      const lst = await spawnSync("node", ["backup.js", "list"], { env: cliEnv });
+      assert.ok(lst.stdout.includes("zanboxx/slot-"), "list shows the off-site copy");
+      const wrong = await spawnSync("node", ["backup.js", "restore", offKey], { env: { ...cliEnv, BACKUP_PASSPHRASE: "wrong" } });
+      assert.notEqual(wrong.status, 0); assert.ok(wrong.stderr.includes("wrong passphrase")); assert.ok(!fs.existsSync(path.join(dir, "restore.db")), "nothing staged on failure");
+      const good = await spawnSync("node", ["backup.js", "restore", offKey], { env: cliEnv });
+      assert.equal(good.status, 0, good.stderr + good.stdout); assert.ok(fs.existsSync(path.join(dir, "restore.db")));
+      await stop(p3); p3 = await start();
+      assert.ok(!fs.existsSync(path.join(dir, "restore.db")), "restore file consumed");
+      assert.ok(fs.readdirSync(dir).some((f) => f.includes(".before-restore-")), "previous database kept aside");
+      assert.equal((await call("GET", "/v1/usage", null, nk)).status, 200, "deleted account is back after restore");
+      assert.equal((await call("GET", "/v1/payments", null, nk)).body.data.length, 1);
+      assert.equal((await call("GET", "/v1/usage", null, legacyKey)).status, 200);
+      const keptFile = path.join(dir, "backups", fs.readdirSync(path.join(dir, "backups")).filter((f) => f.endsWith(".db")).sort().pop());
+      assert.equal((await spawnSync("node", ["backup.js", "verify", keptFile], { env: cliEnv })).status, 0);
+      await stop(p3);
+
+      // 6. a damaged database file is refused, not silently replaced
+      fs.writeFileSync(env3.DB_FILE, "this is not a database, it is long enough to look like one ".repeat(200));
+      for (const e of ["-wal", "-shm"]) try { fs.unlinkSync(env3.DB_FILE + e); } catch {}
+      const dead = await spawnSync("node", ["server.js"], { env: { ...process.env, ...env3 }, timeout: 10000 });
+      assert.notEqual(dead.status, 0, "server refuses to start on a damaged database");
+      mockS3.close(); fs.rmSync(dir, { recursive: true, force: true });
+    }
+
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
-  finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); }
+  finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }
 })();

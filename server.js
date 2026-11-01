@@ -37,6 +37,7 @@ const LEGAL = {
   OPERATOR: process.env.OPERATOR_NAME || "[operator name not set]",
   ADDRESS: process.env.OPERATOR_ADDRESS || "[operator address not set]",
   EMAIL: process.env.CONTACT_EMAIL || "[contact email not set]",
+  BACKUPHOST: process.env.BACKUP_PROVIDER_NAME || "Tigris Data, Inc., via Fly.io",
   MAILER: process.env.EMAIL_PROVIDER_NAME || "Resend (Resend, Inc.)",
   PHONE: process.env.OPERATOR_PHONE || "[phone not set]",
   VATID: process.env.OPERATOR_VAT_ID || "[VAT ID not set, or not applicable]",
@@ -90,12 +91,26 @@ function trimLogs(acc) {
 }
 const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-4051", "Insufficient funds"], expired: ["SBX-4054", "Card expired"] };
 
-// ---------- storage ----------
-let DB = { accounts: {}, keys: {} };
-try { DB = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch {}
-DB.trials = DB.trials || {}; DB.accounts = DB.accounts || {}; DB.keys = DB.keys || {}; DB.tokens = DB.tokens || {}; DB.emails = DB.emails || {};
-let timer = null;
-const save = () => { clearTimeout(timer); timer = setTimeout(() => fs.writeFile(DATA_FILE, JSON.stringify(DB), () => {}), 200); };
+// ---------- storage (SQLite, see store.js) ----------
+const { Store } = require("./store");
+const DB_FILE = process.env.DB_FILE || DATA_FILE.replace(/\.json$/i, "") + ".db";
+const store = new Store(DB_FILE, { legacyJson: DATA_FILE.endsWith(".json") ? DATA_FILE : null });
+const DB = store.load();
+let timer = null, flushFull = false;
+const dirty = new Set();
+// save(acc): this account (and the small lookup tables) changed. save(): something else changed, check every account.
+// saveMaps(): only keys, emails, tokens or trials changed.
+const save = (acc) => { if (acc && acc.id) dirty.add(acc.id); else if (acc !== null) flushFull = true; schedule(); };
+const saveMaps = () => schedule();
+function schedule() { if (!timer) timer = setTimeout(flushNow, 200); }
+function flushNow() {
+  clearTimeout(timer); timer = null;
+  const full = flushFull, ids = new Set(dirty);
+  flushFull = false; dirty.clear();
+  try { store.flush(DB, full ? null : ids); }
+  catch (e) { console.error("DATABASE WRITE FAILED:", e.message); flushFull = true; schedule(); }
+}
+const backups = require("./backup").createBackupService(store, process.env, { beforeSnapshot: flushNow });
 const rnd = (n) => crypto.randomBytes(n).toString("hex");
 const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
 const r2 = (n) => Math.round(n * 100) / 100;
@@ -149,7 +164,7 @@ async function deliver(acc, event, opts = {}) {
     if (opts.replayOf) rec.replay_of = opts.replayOf;
     if (c > 0) rec.copy = c + 1;
     acc.deliveries.unshift(rec); acc.deliveries = acc.deliveries.slice(0, 100);
-    if (hook.drop) { rec.attempts.push({ at: rec.created_at, error: "not sent: dropped by your failure script" }); save(); return; }
+    if (hook.drop) { rec.attempts.push({ at: rec.created_at, error: "not sent: dropped by your failure script" }); save(acc); return; }
     if (hook.delay_ms) await sleep(hook.delay_ms);
     for (const wait of RETRY_MS) {
       if (wait) await sleep(wait);
@@ -167,7 +182,7 @@ async function deliver(acc, event, opts = {}) {
         if (res.status >= 200 && res.status < 300) { rec.delivered = true; break; }
       } catch (e) { rec.attempts.push({ at, ms: Date.now() - t0, error: String(e.message || e).slice(0, 120) }); }
     }
-    save();
+    save(acc);
   }
 }
 function emit(acc, p) {
@@ -210,7 +225,7 @@ function settle(acc, p, ok, code, message) {
   p.status = { code, message };
   delete p._3ds;
   if (ok) effects(acc, p);
-  save();
+  save(acc);
   setTimeout(() => emit(acc, p), 300);
 }
 
@@ -346,7 +361,7 @@ function createPaymentInner(acc, b, meta) {
   if (outcome === "timeout") {
     p.status = { code: "SBX-5040", message: "Gateway timeout; outcome unknown" };
     setTimeout(() => settle(acc, p, true, "SBX-2000", "Approved after timeout"), SETTLE_MS);
-    save();
+    save(acc);
     return { status: 504, body: { error: { code: "SBX-5040", message: "Gateway timeout. Outcome unknown: wait for the webhook or poll GET /v1/payments/{id} before retrying.", transaction_id: p.id } } };
   }
   if (outcome === "3ds" || outcome.startsWith("3ds_")) {
@@ -356,7 +371,7 @@ function createPaymentInner(acc, b, meta) {
     trimLogs(acc);
     if (status === "C") {
       p._3ds = true; p.status = { code: "SBX-2020", message: "Waiting for 3D Secure" };
-      save();
+      save(acc);
       return { status: 202, body: { ...pub(p), three_ds: { required: true, confirm_url: `/v1/payments/${p.id}/3ds`, log_url: `/v1/payments/${p.id}/3ds-log` } } };
     }
     settle(acc, p, tr.payment.ok, tr.payment.code, tr.payment.message);
@@ -368,7 +383,7 @@ function createPaymentInner(acc, b, meta) {
 }
 
 // ---------- http plumbing ----------
-const buckets = new Map(), signups = new Map();
+const buckets = new Map(), signups = new Map(), adminFails = new Map();
 function limited(map, key, limit, windowMs) {
   const now = Date.now(), b = map.get(key);
   if (!b || now - b.start > windowMs) { map.set(key, { start: now, n: 1 }); return false; }
@@ -400,7 +415,7 @@ function auth(req) {
   const acc = id && DB.accounts[id];
   if (!acc) throw bad(401, "unauthorized", "Missing or invalid API key. Send 'Authorization: Bearer sk_test_...'");
   const today = new Date().toISOString().slice(0, 10);
-  if (acc.last_seen !== today) { acc.last_seen = today; save(); }
+  if (acc.last_seen !== today) { acc.last_seen = today; save(acc); }
   return acc;
 }
 
@@ -439,7 +454,7 @@ function takeToken(token, type) {
   if (typeof token !== "string" || !/^[a-f0-9]{48}$/.test(token)) throw bad(400, "invalid_token", "This link is not valid");
   const h = sha(token), t = DB.tokens[h];
   if (!t || t.type !== type || t.exp < Date.now() || !DB.accounts[t.acct]) { delete DB.tokens[h]; throw bad(400, "invalid_token", "This link has expired or was already used. Request a new one."); }
-  delete DB.tokens[h]; save();
+  delete DB.tokens[h]; saveMaps();
   return t;
 }
 function dropAccountEmail(acc) {
@@ -450,7 +465,7 @@ function dropAccountEmail(acc) {
 function issueKey(acc) {
   for (const h of Object.keys(DB.keys)) if (DB.keys[h] === acc.id) delete DB.keys[h];
   const key = "sk_test_" + rnd(24);
-  DB.keys[sha(key)] = acc.id; save();
+  DB.keys[sha(key)] = acc.id; saveMaps();
   return key;
 }
 
@@ -535,6 +550,30 @@ async function route(req, res) {
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
   if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
+
+  if (path.startsWith("/admin/")) {
+    const want = process.env.ADMIN_TOKEN || "";
+    if (!want) throw bad(404, "not_found", "Unknown endpoint");
+    if (limited(adminFails, clientIp(req), 20, 3600e3)) throw bad(429, "rate_limited", "Too many attempts");
+    const got = (req.headers.authorization || "").replace(/^Bearer /, "");
+    const a = crypto.createHash("sha256").update(got).digest(), b = crypto.createHash("sha256").update(want).digest();
+    if (!crypto.timingSafeEqual(a, b)) throw bad(401, "unauthorized", "Missing or wrong admin token");
+    adminFails.delete(clientIp(req));
+    if (m === "GET" && path === "/admin/status") {
+      const accounts = Object.values(DB.accounts);
+      return send(res, 200, {
+        node: process.version, uptime_s: Math.round(process.uptime()), database: DB_FILE, database_bytes: store.sizeBytes(),
+        accounts: accounts.length, pro_accounts: accounts.filter((x) => planOf(x) === "pro").length, verified_emails: Object.keys(DB.emails).length,
+        backups: backups.status(),
+      });
+    }
+    if (m === "POST" && path === "/admin/backup") {
+      try { const r = await backups.run("manual"); return send(res, 200, { ok: !r.error, file: r.file, offsite: r.offsite, warning: r.error }); }
+      catch (e) { throw bad(500, "backup_failed", e.message); }
+    }
+    throw bad(404, "not_found", "Unknown endpoint");
+  }
+
   if (m === "POST" && path === "/stripe/webhook") {
     if (!billingOn()) throw bad(404, "not_found", "Unknown endpoint");
     const raw = await readRaw(req);
@@ -551,7 +590,7 @@ async function route(req, res) {
     if (Object.keys(DB.accounts).length >= MAX_ACCOUNTS) throw bad(503, "signups_closed", "Signups are temporarily closed");
     const key = "sk_test_" + rnd(24), id = "acct_" + rnd(6);
     DB.accounts[id] = { id, plan: "free", created_at: new Date().toISOString(), usage: { month: "", count: 0 }, payments: [], deliveries: [], webhook: null };
-    DB.keys[sha(key)] = id; save();
+    DB.keys[sha(key)] = id; save(DB.accounts[id]);
     return send(res, 201, { account_id: id, api_key: key, plan: "free", note: "Store this key now; it cannot be shown again." });
   }
 
@@ -598,7 +637,7 @@ async function route(req, res) {
     if (acc.usage.count >= PLANS[plan].monthly) throw bad(402, "plan_limit", `Monthly limit of ${PLANS[plan].monthly} payments reached for the ${plan} plan`);
     const out = createPayment(acc, await readBody(req));
     if (!out.injected) acc.usage.count++;
-    save();
+    save(acc);
     if (out.latency_ms) await sleep(out.latency_ms);
     return send(res, out.status, out.body);
   }
@@ -634,10 +673,10 @@ async function route(req, res) {
     if (m === "GET") return send(res, 200, acc.webhook || { url: null });
     if (m === "PUT") {
       const b = await readBody(req), u = await checkWebhookUrl(b.url);
-      acc.webhook = { url: u, secret: (acc.webhook && acc.webhook.secret) || "whsec_" + rnd(20) }; save();
+      acc.webhook = { url: u, secret: (acc.webhook && acc.webhook.secret) || "whsec_" + rnd(20) }; save(acc);
       return send(res, 200, acc.webhook);
     }
-    if (m === "DELETE") { acc.webhook = null; save(); return send(res, 200, { url: null }); }
+    if (m === "DELETE") { acc.webhook = null; save(acc); return send(res, 200, { url: null }); }
   }
   if (m === "POST" && path === "/v1/webhook/test") {
     if (!acc.webhook) throw bad(409, "no_webhook", "Register a webhook first with PUT /v1/webhook");
@@ -649,10 +688,10 @@ async function route(req, res) {
     if (m === "GET") return send(res, 200, { active: planOf(acc) === "pro" && !!(acc.script && acc.script.rules.length), rules: acc.script ? acc.script.rules : [], requests_counted: acc.script ? acc.script.count : 0, max_rules: MAX_RULES, pro: planOf(acc) === "pro" });
     if (m === "PUT") {
       requirePro(acc, "Failure scripting");
-      acc.script = { rules: parseScript(await readBody(req)), count: 0, updated_at: new Date().toISOString() }; save();
+      acc.script = { rules: parseScript(await readBody(req)), count: 0, updated_at: new Date().toISOString() }; save(acc);
       return send(res, 200, { active: acc.script.rules.length > 0, rules: acc.script.rules, requests_counted: 0, max_rules: MAX_RULES, pro: true });
     }
-    if (m === "DELETE") { acc.script = null; save(); return send(res, 200, { active: false, rules: [] }); }
+    if (m === "DELETE") { acc.script = null; save(acc); return send(res, 200, { active: false, rules: [] }); }
   }
   let dm;
   if (m === "GET" && (dm = path.match(/^\/v1\/webhook\/deliveries\/(dlv_[a-f0-9]+)$/))) {
@@ -683,7 +722,7 @@ async function route(req, res) {
     }
     return send(res, 200, { sent: true, message: "If the address can be used, a confirmation link is on its way." });
   }
-  if (m === "DELETE" && path === "/v1/account/email") { dropAccountEmail(acc); save(); return send(res, 200, { removed: true }); }
+  if (m === "DELETE" && path === "/v1/account/email") { dropAccountEmail(acc); save(acc); return send(res, 200, { removed: true }); }
   if (m === "POST" && path === "/v1/account/rotate-key") return send(res, 200, { api_key: issueKey(acc), note: "Your previous API key no longer works." });
   if (m === "GET" && path === "/v1/usage") {
     const sub = acc.plan === "pro", tr = trialActive(acc);
@@ -729,7 +768,7 @@ async function route(req, res) {
     purgeAccount(acc.id);
     return send(res, 200, { deleted: true });
   }
-  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; save(); return send(res, 200, { cleared: true }); }
+  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; save(acc); return send(res, 200, { cleared: true }); }
   throw bad(404, "not_found", "Unknown endpoint");
 }
 
@@ -740,8 +779,19 @@ const server = http.createServer((req, res) => {
   });
 });
 if (require.main === module) {
-  server.listen(PORT, () => console.log(`DryRun API listening on :${PORT} (billing ${billingOn() ? "on" : "off"})`));
+  server.listen(PORT, () => console.log(`Zanboxx API listening on :${PORT} (billing ${billingOn() ? "on" : "off"})`));
   purgeInactive();
   setInterval(purgeInactive, 24 * 3600e3).unref();
+  backups.start();
+  console.log(`Database: ${DB_FILE} (${Object.keys(DB.accounts).length} accounts)`);
+  // On shutdown (deploys, restarts) write pending changes first, so nothing from the last moments is lost.
+  let closing = false;
+  const shutdown = (sig) => {
+    if (closing) return; closing = true;
+    console.log(`${sig} received: saving and exiting`);
+    try { flushNow(); store.close(); } catch (e) { console.error("shutdown save failed:", e.message); }
+    server.close(); setTimeout(() => process.exit(0), 100).unref(); process.exit(0);
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM")); process.on("SIGINT", () => shutdown("SIGINT"));
 }
 module.exports = server;

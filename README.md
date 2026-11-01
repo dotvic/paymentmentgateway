@@ -115,3 +115,8 @@ See `BILLING.md` for Stripe setup, the operator details shown on `/terms` and `/
 ## Free trial
 
 Confirming an email address starts a 14-day Pro trial (once per address and once per account, no card). During the trial the account gets Pro limits plus failure scripting and webhook replay. When it ends the account returns to Free; scripts stay saved but are not applied. Change the length with `TRIAL_DAYS` (set `0` to switch the trial off). The trial needs email to be configured (`EMAIL_API_KEY`, `EMAIL_FROM`).
+
+
+## Storage and backups
+
+Data is stored in SQLite (`DB_FILE`, default next to `DATA_FILE`) using the `node:sqlite` module built into Node 22. Scheduled backups, encrypted off-site copies to any S3-compatible storage, and the restore command are described in `DEPLOY-FLY.md`. Admin endpoints (only when `ADMIN_TOKEN` is set): `GET /admin/status`, `POST /admin/backup`.
