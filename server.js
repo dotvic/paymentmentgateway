@@ -46,7 +46,11 @@ const LEGAL = {
   UPDATED: process.env.LEGAL_UPDATED || "31 October 2026",
   DAYS: String(INACTIVE_DAYS),
 };
-const PAGES = {};
+const PAGES = {}, ASSETS = {};
+(function loadAssets() {
+  const files = { "/favicon.svg": ["favicon.svg", "image/svg+xml"], "/favicon.png": ["favicon.png", "image/png"], "/favicon.ico": ["favicon.png", "image/png"], "/apple-touch-icon.png": ["apple-touch-icon.png", "image/png"] };
+  for (const [url, [f, type]] of Object.entries(files)) { try { ASSETS[url] = { body: fs.readFileSync(require("path").join(PUBLIC_DIR, f)), type }; } catch {} }
+})();
 (function loadPages() {
   const read = (f) => { try { return fs.readFileSync(require("path").join(PUBLIC_DIR, f), "utf8"); } catch { return null; } };
   const idx = read("index.html");
@@ -59,8 +63,8 @@ const PAGES = {};
 })();
 function sendPage(res, pg) {
   const csp = pg.script
-    ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
-    : "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    ? "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    : "default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
   res.writeHead(200, {
     "content-type": "text/html; charset=utf-8", "content-length": pg.body.length, "cache-control": "no-cache",
     "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "content-security-policy": csp,
@@ -548,6 +552,7 @@ async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
+  if (m === "GET" && ASSETS[path]) { res.writeHead(200, { "content-type": ASSETS[path].type, "content-length": ASSETS[path].body.length, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" }); return res.end(ASSETS[path].body); }
   if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
 

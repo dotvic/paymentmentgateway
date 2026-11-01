@@ -64,6 +64,10 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     for (let i = 0; i < 50; i++) { try { await fetch(BASE + "/health"); break; } catch { await sleep(100); } }
     const home = await fetch(BASE + "/");
     assert.equal(home.status, 200); assert.ok((await home.text()).includes("Zanboxx"), "landing page served");
+    for (const [u, type] of [["/favicon.svg", "image/svg+xml"], ["/favicon.png", "image/png"], ["/favicon.ico", "image/png"], ["/apple-touch-icon.png", "image/png"]]) {
+      const ic = await fetch(BASE + u); assert.equal(ic.status, 200, u); assert.equal(ic.headers.get("content-type"), type, u); assert.ok((await ic.arrayBuffer()).byteLength > 300, u);
+    }
+    assert.ok((await (await fetch(BASE + "/terms")).text()).includes('rel="icon"'), "legal pages link the icon");
     assert.equal((await api("GET", "/v1/payments")).status, 401);
     const acct = await api("POST", "/v1/accounts"); key = acct.body.api_key;
     assert.equal(acct.status, 201);
