@@ -46,6 +46,12 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/payments` | Create a transaction (purchase/debit, authorization, capture-authorization, refund, void) |
 | `GET /v1/payments`, `GET /v1/payments/{id}` | List (`?state=&limit=`) or fetch |
 | `GET /v1/payments/{id}/3ds-log` | Step-by-step 3-D Secure message log (AReq/ARes, CReq/CRes, RReq/RRes, authorization, liability shift). Latest 20 per account are kept |
+| `POST /v1/account/email` | Send a confirmation link to an email address (`{"email":"..."}`) |
+| `DELETE /v1/account/email` | Remove the account's email |
+| `POST /v1/account/rotate-key` | Create a new API key; the old one stops working |
+| `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
+| `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
+| `POST /v1/email/verify` | Confirm an email with the token from the link |
 | `POST /v1/payments/{id}/3ds` | Complete a challenge with `{"result":"approve"\|"fail"}` |
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |

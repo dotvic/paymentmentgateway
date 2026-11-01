@@ -137,3 +137,17 @@ Safeguards that stay on: 5 signups per hour per IP address, at most 2000 account
    Also set `GOVERNING_LAW="Germany"` if it is not set yet.
 4. Stripe: in the dashboard, check that the webhook endpoint is `https://zanboxx.com/stripe/webhook` (or keep the fly.dev one; both keep working).
 5. The `/impressum` page (required for commercial sites in Germany) fills itself from `OPERATOR_NAME`, `OPERATOR_ADDRESS`, `CONTACT_EMAIL`, `OPERATOR_PHONE`, `OPERATOR_VAT_ID`.
+
+## Email recovery (lost-key sign-in)
+
+Accounts can add a confirmed email address and later sign in with a one-time link if they lose their API key. It needs an email provider. The code uses the Resend HTTP API (free tier: 3,000 emails a month).
+
+1. Create an account at resend.com, add the domain `zanboxx.com` under Domains, and add the DNS records it shows you at Namecheap (Advanced DNS, mostly TXT and MX records). Wait until Resend shows the domain as Verified.
+2. Create an API key in Resend (permission: sending access).
+3. Set the secrets:
+   ```
+   fly secrets set EMAIL_API_KEY="re_..." EMAIL_FROM="Zanboxx <login@zanboxx.com>" --app paymentmentgateway
+   ```
+4. Redeploy. The recovery boxes appear on the page once `EMAIL_API_KEY` and `EMAIL_FROM` are set; without them the feature stays hidden and the rest works as before.
+
+Limits: 3 sign-in emails per address per hour, 10 requests per IP per hour (`MAIL_IP_PER_HOUR`). Links expire after 15 minutes (sign-in) or 1 hour (confirmation) and work once. If you use another provider, set `EMAIL_API_BASE` to an API with the same `POST /emails` shape or tell me and I will adapt it.

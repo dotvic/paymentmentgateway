@@ -1,12 +1,13 @@
 "use strict";
 // Run: npm test  (starts the server and a local webhook receiver, then exercises every flow)
 const { spawn } = require("child_process"), http = require("http"), crypto = require("crypto"), assert = require("assert");
-const PORT = 18080, HOOK = 18081, STRIPE_PORT = 18082, BASE = `http://127.0.0.1:${PORT}`;
+const PORT = 18080, HOOK = 18081, STRIPE_PORT = 18082, MAIL_PORT = 18083, BASE = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WH_SECRET = "whsec_test_secret";
 const srv = spawn("node", ["server.js"], {
   env: {
     ...process.env, PORT, DATA_FILE: `/tmp/dryrun-test-${Date.now()}.json`, ALLOW_PRIVATE_WEBHOOKS: "1", RETRY_MS: "0,200", SETTLE_DELAY_MS: "300",
+    SIGNUPS_PER_HOUR: "50", MAIL_IP_PER_HOUR: "100", EMAIL_API_KEY: "re_test", EMAIL_FROM: "Zanboxx <login@example.test>", EMAIL_API_BASE: `http://127.0.0.1:${MAIL_PORT}`,
     STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET,
     STRIPE_API_BASE: `http://127.0.0.1:${STRIPE_PORT}`, PUBLIC_URL: "https://example.test", PRO_PRICE_LABEL: "EUR 19 per month",
     OPERATOR_NAME: "Test Operator Ltd", OPERATOR_ADDRESS: "1 Test Street", CONTACT_EMAIL: "legal@example.test",
@@ -31,6 +32,15 @@ const stripeEvent = async (type, object, opts = {}) => {
   const r = await fetch(BASE + "/stripe/webhook", { method: "POST", headers: { "content-type": "application/json", "stripe-signature": opts.sig || stripeSig(raw) }, body: raw });
   return { status: r.status, body: await r.json() };
 };
+// Mock email provider: collects every message so the test can read the links.
+const mails = []; let mailFail = false;
+const mockMail = http.createServer((req, res) => {
+  let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => {
+    if (mailFail) { res.writeHead(500); return res.end("{}"); }
+    mails.push({ auth: req.headers.authorization, ...JSON.parse(d) }); res.setHeader("content-type", "application/json"); res.end("{\"id\":\"m1\"}");
+  });
+}).listen(MAIL_PORT);
+const lastLink = (param) => { const m = mails[mails.length - 1].text.match(new RegExp("/\\?" + param + "=([a-f0-9]+)")); return m && m[1]; };
 const hooks = []; let failFirst = true, secret = "";
 const receiver = http.createServer((req, res) => {
   let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => {
@@ -101,7 +111,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     assert.equal(priv.status, 400);
     // ---------- billing, legal pages and account deletion (against the mock Stripe) ----------
     const cfg = await (await fetch(BASE + "/v1/config")).json();
-    assert.deepEqual(cfg, { billing: true, pro_price: "EUR 19 per month" });
+    assert.deepEqual(cfg, { billing: true, email: true, pro_price: "EUR 19 per month" });
     for (const p of ["/terms", "/privacy"]) {
       const r = await fetch(BASE + p), t = await r.text();
       assert.equal(r.status, 200);
@@ -245,7 +255,62 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     assert.equal(old.status, 404); assert.ok(old.body.error.message.includes("no longer stored"));
     assert.equal((await getLog(lastId)).status, 200);
 
+    // ---- email: verify, sign in with a link, rotate key ----
+    const cfgE = await (await fetch(BASE + "/v1/config")).json(); assert.equal(cfgE.email, true);
+    const ea = await api("POST", "/v1/accounts"); const oldKey = ea.body.api_key; key = oldKey;
+    assert.equal((await api("POST", "/v1/account/email", { email: "not-an-email" })).body.error.code, "invalid_email");
+    const sent = await api("POST", "/v1/account/email", { email: "  Learner@Example.TEST " }); assert.equal(sent.status, 200);
+    await sleep(150);
+    assert.equal(mails.length, 1); assert.equal(mails[0].to[0], "learner@example.test"); assert.equal(mails[0].auth, "Bearer re_test");
+    assert.ok(mails[0].text.includes("https://example.test/?verify="), "verification link built from PUBLIC_URL");
+    assert.equal((await api("GET", "/v1/usage")).body.email, null, "not shown until verified");
+    // sign-in before verification sends nothing
+    await api("POST", "/v1/login", { email: "learner@example.test" }); await sleep(100);
+    assert.equal(mails.length, 1, "unverified address gets no sign-in mail");
+    const vtok = lastLink("verify");
+    assert.equal((await api("POST", "/v1/email/verify", { token: "0".repeat(48) })).body.error.code, "invalid_token");
+    assert.equal((await api("POST", "/v1/email/verify", { token: vtok })).body.verified, true);
+    assert.equal((await api("POST", "/v1/email/verify", { token: vtok })).status, 400, "verification link works once");
+    assert.equal((await api("GET", "/v1/usage")).body.email, "learner@example.test");
+    // another account cannot take the same address, and cannot tell why
+    const eb = await api("POST", "/v1/accounts"); key = eb.body.api_key;
+    const before = mails.length;
+    const dupE = await api("POST", "/v1/account/email", { email: "learner@example.test" }); await sleep(100);
+    assert.equal(dupE.status, 200); assert.equal(mails.length, before, "no mail for an address that is taken");
+    // unknown address looks identical to a known one
+    const unk = await api("POST", "/v1/login", { email: "nobody@example.test" }); await sleep(100);
+    assert.equal(unk.status, 200); assert.equal(mails.length, before);
+    // sign in with a link: new key, old key dies, link works once
+    key = null;
+    const li = await api("POST", "/v1/login", { email: "LEARNER@example.test" }); assert.equal(li.status, 200); await sleep(150);
+    assert.equal(mails.length, before + 1); assert.ok(mails[mails.length - 1].text.includes("/?login="));
+    const ltok = lastLink("login");
+    const red = await api("POST", "/v1/login/redeem", { token: ltok });
+    assert.equal(red.status, 200); assert.ok(/^sk_test_[a-f0-9]+$/.test(red.body.api_key)); assert.equal(red.body.account_id, ea.body.account_id);
+    assert.equal((await api("POST", "/v1/login/redeem", { token: ltok })).status, 400, "sign-in link works once");
+    key = oldKey; assert.equal((await api("GET", "/v1/usage")).status, 401, "old key revoked");
+    key = red.body.api_key; assert.equal((await api("GET", "/v1/usage")).status, 200);
+    assert.equal((await api("POST", "/v1/login/redeem", { token: vtok })).status, 400, "a verify token cannot sign in");
+    // rotate key
+    const rot = await api("POST", "/v1/account/rotate-key"); const keyBeforeRot = key; key = rot.body.api_key;
+    assert.equal((await api("GET", "/v1/usage")).status, 200);
+    key = keyBeforeRot; assert.equal((await api("GET", "/v1/usage")).status, 401);
+    key = rot.body.api_key;
+    // rate limit: a 4th sign-in request for the same address in an hour is refused
+    key = null;
+    await api("POST", "/v1/login", { email: "learner@example.test" }); await api("POST", "/v1/login", { email: "learner@example.test" });
+    assert.equal((await api("POST", "/v1/login", { email: "learner@example.test" })).status, 429);
+    // mail provider failure does not leak or crash
+    mailFail = true; assert.equal((await api("POST", "/v1/login", { email: "someone-else@example.test" })).status, 200); mailFail = false;
+    // remove email, then it can be used by another account; deleting the account frees it too
+    key = rot.body.api_key;
+    assert.equal((await api("DELETE", "/v1/account/email")).body.removed, true);
+    assert.equal((await api("GET", "/v1/usage")).body.email, null);
+    key = eb.body.api_key;
+await api("POST", "/v1/account/email", { email: "learner@example.test" }); await sleep(150);
+    assert.equal((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).status, 200, "address freed after removal");
+
     console.log("All checks passed");
-  } catch (e) { console.error("FAILED:", e.message); process.exitCode = 1; }
-  finally { srv.kill(); receiver.close(); mockStripe.close(); }
+  } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
+  finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); }
 })();

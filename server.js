@@ -30,6 +30,7 @@ const LEGAL = {
   OPERATOR: process.env.OPERATOR_NAME || "[operator name not set]",
   ADDRESS: process.env.OPERATOR_ADDRESS || "[operator address not set]",
   EMAIL: process.env.CONTACT_EMAIL || "[contact email not set]",
+  MAILER: process.env.EMAIL_PROVIDER_NAME || "Resend (Resend, Inc.)",
   PHONE: process.env.OPERATOR_PHONE || "[phone not set]",
   VATID: process.env.OPERATOR_VAT_ID || "[VAT ID not set, or not applicable]",
   LAW: process.env.GOVERNING_LAW || "the country where the operator is established",
@@ -85,6 +86,7 @@ const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-405
 // ---------- storage ----------
 let DB = { accounts: {}, keys: {} };
 try { DB = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")); } catch {}
+DB.accounts = DB.accounts || {}; DB.keys = DB.keys || {}; DB.tokens = DB.tokens || {}; DB.emails = DB.emails || {};
 let timer = null;
 const save = () => { clearTimeout(timer); timer = setTimeout(() => fs.writeFile(DATA_FILE, JSON.stringify(DB), () => {}), 200); };
 const rnd = (n) => crypto.randomBytes(n).toString("hex");
@@ -290,13 +292,67 @@ function auth(req) {
   return acc;
 }
 
+
+// ---------- email: verification and sign-in links ----------
+const EMAIL_API_KEY = process.env.EMAIL_API_KEY || "";
+const EMAIL_FROM = process.env.EMAIL_FROM || "";
+const EMAIL_API_BASE = process.env.EMAIL_API_BASE || "https://api.resend.com";
+const emailOn = () => !!(EMAIL_API_KEY && EMAIL_FROM && PUBLIC_URL);
+const MAIL_IP_LIMIT = +process.env.MAIL_IP_PER_HOUR || 10;
+const VERIFY_MS = 60 * 60e3, LOGIN_MS = 15 * 60e3;
+const mailLimits = new Map(), mailIpLimits = new Map();
+function cleanEmail(v) {
+  const e = typeof v === "string" ? v.trim().toLowerCase() : "";
+  if (e.length < 5 || e.length > 254 || !/^[^\s@<>"',;:\\]+@[^\s@<>"',;:\\]+\.[a-z]{2,}$/.test(e)) throw bad(400, "invalid_email", "Enter a valid email address");
+  return e;
+}
+async function sendMail(to, subject, text) {
+  const r = await fetch(EMAIL_API_BASE + "/emails", {
+    method: "POST",
+    headers: { authorization: "Bearer " + EMAIL_API_KEY, "content-type": "application/json" },
+    body: JSON.stringify({ from: EMAIL_FROM, to: [to], subject, text }),
+    signal: AbortSignal.timeout(10000),
+  });
+  if (!r.ok) throw new Error("email provider answered " + r.status);
+}
+function makeToken(type, acct, email, ms) {
+  const token = rnd(24);
+  DB.tokens[sha(token)] = { type, acct, email, exp: Date.now() + ms };
+  const keys = Object.keys(DB.tokens);
+  if (keys.length > 20000) for (const k of keys.slice(0, keys.length - 20000)) delete DB.tokens[k];
+  save();
+  return token;
+}
+function takeToken(token, type) {
+  if (typeof token !== "string" || !/^[a-f0-9]{48}$/.test(token)) throw bad(400, "invalid_token", "This link is not valid");
+  const h = sha(token), t = DB.tokens[h];
+  if (!t || t.type !== type || t.exp < Date.now() || !DB.accounts[t.acct]) { delete DB.tokens[h]; throw bad(400, "invalid_token", "This link has expired or was already used. Request a new one."); }
+  delete DB.tokens[h]; save();
+  return t;
+}
+function dropAccountEmail(acc) {
+  if (acc.email && DB.emails[acc.email] === acc.id) delete DB.emails[acc.email];
+  delete acc.email; delete acc.email_verified;
+  for (const h of Object.keys(DB.tokens)) if (DB.tokens[h].acct === acc.id) delete DB.tokens[h];
+}
+function issueKey(acc) {
+  for (const h of Object.keys(DB.keys)) if (DB.keys[h] === acc.id) delete DB.keys[h];
+  const key = "sk_test_" + rnd(24);
+  DB.keys[sha(key)] = acc.id; save();
+  return key;
+}
+
 // ---------- account deletion and cleanup ----------
 function purgeAccount(id) {
+  const a = DB.accounts[id];
+  if (a) dropAccountEmail(a);
   delete DB.accounts[id];
   for (const h of Object.keys(DB.keys)) if (DB.keys[h] === id) delete DB.keys[h];
   save();
 }
 function purgeInactive() {
+  const now = Date.now();
+  for (const h of Object.keys(DB.tokens)) if (DB.tokens[h].exp < now) delete DB.tokens[h];
   const cutoff = Date.now() - INACTIVE_DAYS * 864e5;
   for (const a of Object.values(DB.accounts)) {
     const paying = a.plan === "pro" || (a.stripe && a.stripe.subscription);
@@ -365,7 +421,7 @@ async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
-  if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null });
+  if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
   if (m === "POST" && path === "/stripe/webhook") {
     if (!billingOn()) throw bad(404, "not_found", "Unknown endpoint");
@@ -379,12 +435,37 @@ async function route(req, res) {
 
   if (m === "POST" && path === "/v1/accounts") {
     if (SIGNUP_TOKEN && req.headers["x-signup-token"] !== SIGNUP_TOKEN) throw bad(403, "forbidden", "Signup is invite-only");
-    if (limited(signups, clientIp(req), 5, 3600e3)) throw bad(429, "rate_limited", "Too many signups from this address");
+    if (limited(signups, clientIp(req), +process.env.SIGNUPS_PER_HOUR || 5, 3600e3)) throw bad(429, "rate_limited", "Too many signups from this address");
     if (Object.keys(DB.accounts).length >= MAX_ACCOUNTS) throw bad(503, "signups_closed", "Signups are temporarily closed");
     const key = "sk_test_" + rnd(24), id = "acct_" + rnd(6);
     DB.accounts[id] = { id, plan: "free", created_at: new Date().toISOString(), usage: { month: "", count: 0 }, payments: [], deliveries: [], webhook: null };
     DB.keys[sha(key)] = id; save();
     return send(res, 201, { account_id: id, api_key: key, plan: "free", note: "Store this key now; it cannot be shown again." });
+  }
+
+  if (m === "POST" && path === "/v1/login") {
+    if (!emailOn()) throw bad(503, "email_unavailable", "Email sign-in is not open yet");
+    const email = cleanEmail((await readBody(req)).email);
+    if (limited(mailIpLimits, clientIp(req), MAIL_IP_LIMIT, 3600e3) || limited(mailLimits, "login:" + email, 3, 3600e3)) throw bad(429, "rate_limited", "Too many requests. Try again in an hour.");
+    const id = DB.emails[email];
+    if (id && DB.accounts[id]) {
+      const token = makeToken("login", id, email, LOGIN_MS);
+      sendMail(email, "Your Zanboxx sign-in link", `Open this link within 15 minutes to get a new API key for your Zanboxx account:\n\n${PUBLIC_URL}/?login=${token}\n\nSigning in replaces your current API key, so the old key stops working. If you did not ask for this, ignore this email and nothing changes.`).catch((e) => console.error("mail failed:", e.message));
+    }
+    return send(res, 200, { sent: true, message: "If that address belongs to an account, a sign-in link is on its way." });
+  }
+  if (m === "POST" && path === "/v1/login/redeem") {
+    if (limited(mailIpLimits, "redeem:" + clientIp(req), 30, 3600e3)) throw bad(429, "rate_limited", "Too many attempts. Try again later.");
+    const t = takeToken((await readBody(req)).token, "login"), a = DB.accounts[t.acct];
+    return send(res, 200, { account_id: a.id, api_key: issueKey(a), email: a.email || null, note: "Your previous API key no longer works." });
+  }
+  if (m === "POST" && path === "/v1/email/verify") {
+    if (limited(mailIpLimits, "verify:" + clientIp(req), 30, 3600e3)) throw bad(429, "rate_limited", "Too many attempts. Try again later.");
+    const t = takeToken((await readBody(req)).token, "verify"), a = DB.accounts[t.acct];
+    if (DB.emails[t.email] && DB.emails[t.email] !== a.id) throw bad(409, "email_in_use", "That address is already linked to another account");
+    if (a.email && DB.emails[a.email] === a.id) delete DB.emails[a.email];
+    a.email = t.email; a.email_verified = true; DB.emails[t.email] = a.id; save();
+    return send(res, 200, { verified: true, email: t.email });
   }
 
   const acc = auth(req);
@@ -441,7 +522,21 @@ async function route(req, res) {
     return send(res, 202, { queued: true });
   }
   if (m === "GET" && path === "/v1/webhook/deliveries") return send(res, 200, { data: acc.deliveries });
-  if (m === "GET" && path === "/v1/usage") return send(res, 200, { plan: acc.plan, month: acc.usage.month, used: acc.usage.count, limit: PLANS[acc.plan].monthly, billing: billingOn(), subscription_status: acc.stripe ? acc.stripe.status : null });
+
+  if (m === "POST" && path === "/v1/account/email") {
+    if (!emailOn()) throw bad(503, "email_unavailable", "Email is not open yet");
+    const email = cleanEmail((await readBody(req)).email);
+    if (limited(mailLimits, "acct:" + acc.id, 5, 3600e3) || limited(mailIpLimits, clientIp(req), MAIL_IP_LIMIT, 3600e3)) throw bad(429, "rate_limited", "Too many requests. Try again in an hour.");
+    const taken = DB.emails[email] && DB.emails[email] !== acc.id;
+    if (!taken) {
+      const token = makeToken("verify", acc.id, email, VERIFY_MS);
+      sendMail(email, "Confirm your email for Zanboxx", `Open this link within an hour to confirm this address for your Zanboxx account:\n\n${PUBLIC_URL}/?verify=${token}\n\nOnce confirmed you can sign in with a link sent to this address if you ever lose your API key. If you did not ask for this, ignore this email.`).catch((e) => console.error("mail failed:", e.message));
+    }
+    return send(res, 200, { sent: true, message: "If the address can be used, a confirmation link is on its way." });
+  }
+  if (m === "DELETE" && path === "/v1/account/email") { dropAccountEmail(acc); save(); return send(res, 200, { removed: true }); }
+  if (m === "POST" && path === "/v1/account/rotate-key") return send(res, 200, { api_key: issueKey(acc), note: "Your previous API key no longer works." });
+  if (m === "GET" && path === "/v1/usage") return send(res, 200, { email: acc.email_verified ? acc.email : null, plan: acc.plan, month: acc.usage.month, used: acc.usage.count, limit: PLANS[acc.plan].monthly, billing: billingOn(), subscription_status: acc.stripe ? acc.stripe.status : null });
 
   if (m === "POST" && path === "/v1/billing/checkout") {
     if (!billingOn()) throw bad(503, "billing_unavailable", "Pro plan billing is not open yet");
@@ -451,7 +546,7 @@ async function route(req, res) {
       line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
       success_url: PUBLIC_URL + "/?billing=success", cancel_url: PUBLIC_URL + "/?billing=cancelled",
       allow_promotion_codes: "true", billing_address_collection: "required",
-      ...(acc.stripe && acc.stripe.customer ? { customer: acc.stripe.customer } : { tax_id_collection: { enabled: "true" } }),
+      ...(acc.stripe && acc.stripe.customer ? { customer: acc.stripe.customer } : { tax_id_collection: { enabled: "true" }, ...(acc.email_verified ? { customer_email: acc.email } : {}) }),
     });
     if (!s.url) throw bad(502, "billing_error", "The payment provider did not return a checkout link");
     return send(res, 200, { url: s.url });
