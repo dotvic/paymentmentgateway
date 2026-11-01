@@ -30,6 +30,8 @@ const LEGAL = {
   OPERATOR: process.env.OPERATOR_NAME || "[operator name not set]",
   ADDRESS: process.env.OPERATOR_ADDRESS || "[operator address not set]",
   EMAIL: process.env.CONTACT_EMAIL || "[contact email not set]",
+  PHONE: process.env.OPERATOR_PHONE || "[phone not set]",
+  VATID: process.env.OPERATOR_VAT_ID || "[VAT ID not set, or not applicable]",
   LAW: process.env.GOVERNING_LAW || "the country where the operator is established",
   PRICE: PRO_LABEL || "the price shown at checkout",
   UPDATED: process.env.LEGAL_UPDATED || "31 October 2026",
@@ -40,7 +42,7 @@ const PAGES = {};
   const read = (f) => { try { return fs.readFileSync(require("path").join(PUBLIC_DIR, f), "utf8"); } catch { return null; } };
   const idx = read("index.html");
   if (idx) PAGES["/"] = PAGES["/index.html"] = { body: Buffer.from(idx), script: true };
-  for (const n of ["terms", "privacy"]) {
+  for (const n of ["terms", "privacy", "impressum"]) {
     const t = read(n + ".html");
     if (t) PAGES["/" + n] = { body: Buffer.from(t.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in LEGAL ? escHtml(LEGAL[k]) : ""))) };
   }
