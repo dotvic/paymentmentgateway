@@ -1,4 +1,4 @@
-# Zandboxx API
+# Zanboxx API
 
 A hosted sandbox that behaves like a payment gateway. Customers send test payments, trigger declines, timeouts and 3D Secure challenges, and receive signed webhooks. No real money or real card data is ever handled.
 

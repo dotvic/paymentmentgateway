@@ -117,23 +117,23 @@ fly secrets unset SIGNUP_TOKEN --app paymentmentgateway
 
 Safeguards that stay on: 5 signups per hour per IP address, at most 2000 accounts (`MAX_ACCOUNTS`), 500 stored payments per account, and the monthly plan limits. Set `fly secrets set SIGNUP_TOKEN=...` again to close signup.
 
-## Using your own domain (zandboxx.com)
+## Using your own domain (zanboxx.com)
 
 1. Request certificates (run in the project folder):
    ```
-   fly certs add zandboxx.com --app paymentmentgateway
-   fly certs add www.zandboxx.com --app paymentmentgateway
+   fly certs add zanboxx.com --app paymentmentgateway
+   fly certs add www.zanboxx.com --app paymentmentgateway
    fly ips list --app paymentmentgateway
    ```
 2. At Namecheap: Domain List → Manage → Advanced DNS (nameservers must be "Namecheap BasicDNS"). Delete the default parking records, then add DNS records using the IPs from `fly ips list`:
    - `A` record, Host `@`, value = the IPv4 address
    - `AAAA` record, Host `@`, value = the IPv6 address
    - `CNAME` record, Host `www`, value = `paymentmentgateway.fly.dev`
-   (`fly certs show zandboxx.com` prints the exact values and when the certificate is ready.)
+   (`fly certs show zanboxx.com` prints the exact values and when the certificate is ready.)
 3. Point the app at its new address and add the German legal details:
    ```
-   fly secrets set PUBLIC_URL=https://zandboxx.com OPERATOR_PHONE="+49 ..." OPERATOR_VAT_ID="DE..." --app paymentmentgateway
+   fly secrets set PUBLIC_URL=https://zanboxx.com OPERATOR_PHONE="+49 ..." OPERATOR_VAT_ID="DE..." --app paymentmentgateway
    ```
    Also set `GOVERNING_LAW="Germany"` if it is not set yet.
-4. Stripe: in the dashboard, check that the webhook endpoint is `https://zandboxx.com/stripe/webhook` (or keep the fly.dev one; both keep working).
+4. Stripe: in the dashboard, check that the webhook endpoint is `https://zanboxx.com/stripe/webhook` (or keep the fly.dev one; both keep working).
 5. The `/impressum` page (required for commercial sites in Germany) fills itself from `OPERATOR_NAME`, `OPERATOR_ADDRESS`, `CONTACT_EMAIL`, `OPERATOR_PHONE`, `OPERATOR_VAT_ID`.
