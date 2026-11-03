@@ -52,13 +52,15 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
-| `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
+| `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `initiator`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
 | `GET /v1/webhook/deliveries/{id}` | One delivery with the stored event body and every attempt (status, time taken, response snippet) |
 | `POST /v1/webhook/deliveries/{id}/replay` | Send a stored event again (same event id, fresh signature, header `X-DryRun-Replay: true`). Pro or trial |
 | `POST /v1/payments/{id}/3ds` | Complete a challenge with `{"result":"approve"\|"fail"}` |
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
 | `GET /v1/webhook/deliveries` | Delivery attempts and retries |
+| `GET /v1/agreements`, `GET /v1/agreements/{id}` | Card-on-file agreements created by a first payment with `store_credential` |
+| `POST /v1/agreements/{id}/cancel` | Cancel an agreement; later merchant-initiated payments on it are refused |
 | `POST /v1/payments/{id}/dispute` | Play the cardholder's bank and raise a dispute on a successful card purchase or capture. Optional `reason_code` (the payment's scheme code, e.g. `13.1`, `4837`, `F29`) or `reason` (`fraud`, `not_received`, `not_as_described`, `duplicate`), `amount`, `response_window_seconds` (1 to 604800), `outcome` (`auto`, `win`, `lose`) |
 | `GET /v1/disputes`, `GET /v1/disputes/{id}` | List (`?state=&limit=`) or fetch, with evidence requirements, timeline and resolution |
 | `POST /v1/disputes/{id}/evidence` | Submit evidence once (`{"customer_ip":"...","customer_email":"..."}`). Accepted fields depend on the reason |
@@ -104,6 +106,16 @@ What differs per scheme (all simplified teaching values; Zanboxx never contacts 
 - **3-D Secure:** Visa Secure, Mastercard Identity Check, American Express SafeKey. ECI is 05/06/07 for Visa and Amex, 02/01/00 for Mastercard. The authentication value is called CAVV, AAV or AEVV.
 - **Decline codes:** payments and webhook events carry `scheme` and, on failures, `scheme_response` with the scheme's own code (Visa and Mastercard 05, 51, 54; Amex 100, 116, 101) and a retry hint.
 - **Failure script:** `"when": {"scheme": "amex"}` targets one scheme.
+
+## Card on file and merchant-initiated payments (MIT)
+
+Subscriptions, instalments and top-ups charge a stored card without the customer present.
+
+1. **Customer-initiated first payment.** Add `"store_credential": {"type": "recurring"}` (or `"instalment"` with `"instalments": 3`, or `"unscheduled"`) to a card purchase or authorization. When it succeeds (including after a 3-D Secure challenge) an agreement `agr_...` is created and the payment carries `agreement_id` and a `network_transaction_id`. Only the last four digits and the scheme are kept.
+2. **Merchant-initiated payments.** Send `"initiator": "merchant"` and `"agreement_id"` instead of a card number. No `card_number`, `card_cvv` or 3-D Secure; `scenario` can be `auto`/`approve`, `decline`, `nsf`, `expired` or `timeout`. The payment quotes the first payment's ID as `original_network_transaction_id` and gets its own.
+3. **After a decline**, `scheme_response.merchant_advice` says what the scheme wants next: `do_not_retry`, `retry_later` or `update_credentials`, with the scheme's own label (Visa decline categories 1 to 3, Mastercard MAC 03, 02 and 01; Amex plain wording). These are simplified.
+
+Rules: an agreement must be `active` (not cancelled or completed); for instalments the first payment is number 1 and the agreement completes after the last instalment (failed charges do not use one); `mit_type` must match the agreement type. If the first payment was not authenticated with 3-D Secure and a later payment is in EUR, the response carries a `warnings` entry, because EU issuers may decline such MITs. Events: `agreement.created`, `agreement.cancelled`, `agreement.completed`. Up to 50 active agreements per account.
 
 ## Disputes (chargebacks)
 

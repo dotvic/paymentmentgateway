@@ -686,6 +686,93 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/disputes")).body.data.length, 0);
     }
 
+    // ---- merchant-initiated transactions (MIT) and card-on-file agreements ----
+    {
+      hooks.length = 0;
+      const rid = () => "mit_" + Math.random().toString(36).slice(2);
+      const setup = (n, store, extra) => api("POST", "/v1/payments", card(n, { store_credential: store, ...extra }));
+      const mitPay = (agr, extra) => api("POST", "/v1/payments", { request_id: rid(), method: "card", transaction_type: "purchase", amount: 9.99, currency: "EUR", initiator: "merchant", agreement_id: agr, ...extra });
+      const getAgr = async (id) => (await api("GET", `/v1/agreements/${id}`)).body;
+      const waitM = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { const r = fn(); if (r) return r; await sleep(50); } return null; };
+
+      // first payment stores the card
+      const s1 = await setup("4111111111111111", { type: "recurring" }); assert.equal(s1.status, 201, JSON.stringify(s1.body));
+      assert.equal(s1.body.initiator, "customer"); assert.ok(s1.body.agreement_id.startsWith("agr_")); assert.match(s1.body.network_transaction_id, /^\d{15}$/);
+      const ag = await getAgr(s1.body.agreement_id);
+      assert.equal(ag.state, "active"); assert.equal(ag.type, "recurring"); assert.equal(ag.scheme, "visa"); assert.equal(ag.card_last4, "1111"); assert.equal(ag.initial_payment_id, s1.body.id);
+      assert.equal(ag.network_transaction_id, s1.body.network_transaction_id); assert.equal(ag.sca.performed, false); assert.equal(ag.instalments, null); assert.equal(ag.charges, 0);
+      assert.ok(JSON.stringify(ag).indexOf("4111111111111111") < 0, "the card number is never stored on the agreement");
+      await waitM(() => hooks.find((h) => h.body.type === "agreement.created" && h.body.data.id === ag.id)); assert.ok(hooks.find((h) => h.body.type === "agreement.created" && h.body.data.id === ag.id).ok);
+      // charge it later without the customer
+      const m1 = await mitPay(ag.id); assert.equal(m1.status, 201, JSON.stringify(m1.body));
+      assert.equal(m1.body.transaction_state, "success"); assert.equal(m1.body.initiator, "merchant"); assert.equal(m1.body.mit_type, "recurring"); assert.equal(m1.body.scheme, "visa"); assert.equal(m1.body.card_last4, "1111");
+      assert.equal(m1.body.original_network_transaction_id, ag.network_transaction_id); assert.match(m1.body.network_transaction_id, /^\d{15}$/); assert.notEqual(m1.body.network_transaction_id, ag.network_transaction_id);
+      assert.equal(m1.body.warnings.length, 1, "EUR without 3DS on the first payment warns"); assert.equal(m1.body.authentication, undefined, "no 3-D Secure for MIT");
+      assert.equal((await mitPay(ag.id, { currency: "USD" })).body.warnings, undefined);
+      const ag2 = await getAgr(ag.id); assert.equal(ag2.charges, 2); assert.equal(ag2.last_result.state, "success");
+      // validation
+      for (const [extra, why] of [[{ card_number: "4111111111111111" }, "card number"], [{ card_cvv: "123" }, "cvv"], [{ agreement_id: undefined }, "no agreement"], [{ mit_type: "instalment" }, "wrong type"],
+        [{ scenario: "3ds" }, "3ds"], [{ initiator: "bank" }, "initiator"], [{ method: "paypal", transaction_type: "debit" }, "paypal"], [{ transaction_type: "refund", parent_transaction_id: s1.body.id }, "refund"],
+        [{ store_credential: { type: "recurring" } }, "store on MIT"]]) {
+        const r = await mitPay(ag.id, extra); assert.equal(r.status, 400, why + " " + JSON.stringify(r.body));
+      }
+      assert.equal((await mitPay("agr_ffffffff")).status, 404);
+      for (const [st, why] of [[{ type: "weekly" }, "type"], [{ type: "instalment" }, "no count"], [{ type: "instalment", instalments: 1 }, "count 1"], [{ type: "recurring", instalments: 3 }, "count on recurring"], ["recurring", "not an object"]]) {
+        assert.equal((await setup("4111111111111111", st)).status, 400, why);
+      }
+      assert.equal((await api("POST", "/v1/payments", { request_id: rid(), method: "paypal", transaction_type: "debit", amount: 1, currency: "EUR", store_credential: { type: "recurring" } })).status, 400);
+      // declines carry the scheme's retry advice
+      const advice = async (n, outcome) => { const st = await setup(n, { type: "unscheduled" }); const r = await mitPay(st.body.agreement_id, { scenario: outcome }); assert.equal(r.body.transaction_state, "failed", n + outcome); return { r: r.body, a: await getAgr(st.body.agreement_id) }; };
+      for (const [n, id, want] of [["4111111111111111", "visa", { decline: ["do_not_retry", "Category 1"], nsf: ["retry_later", "Category 2"], expired: ["update_credentials", "Category 3"] }],
+        ["5555555555554444", "mastercard", { decline: ["do_not_retry", "MAC 03"], nsf: ["retry_later", "MAC 02"], expired: ["update_credentials", "MAC 01"] }],
+        ["378282246310005", "amex", { decline: ["do_not_retry", "Do not retry"], nsf: ["retry_later", "Retry later"], expired: ["update_credentials", "New details needed"] }]]) {
+        for (const [outcome, [action, code]] of Object.entries(want)) {
+          const { r, a } = await advice(n, outcome); assert.equal(r.scheme, id); assert.equal(r.scheme_response.merchant_advice.action, action, id + outcome); assert.equal(r.scheme_response.merchant_advice.code, code, id + outcome);
+          assert.equal(a.last_result.state, "failed"); assert.equal(a.last_result.scheme_response.merchant_advice.action, action); assert.equal(a.state, "active"); assert.equal(a.charges, 0);
+        }
+      }
+      const cust = await api("POST", "/v1/payments", card("4000000000000002")); assert.equal(cust.body.scheme_response.merchant_advice, undefined, "advice is for MIT only");
+      // a failed first payment stores nothing
+      const before = (await api("GET", "/v1/agreements?limit=100")).body.data.length;
+      const bad1 = await setup("4000000000000002", { type: "recurring" }); assert.equal(bad1.body.transaction_state, "failed"); assert.equal(bad1.body.agreement_id, undefined);
+      assert.equal((await api("GET", "/v1/agreements?limit=100")).body.data.length, before);
+      // 3-D Secure on the first payment: frictionless and challenge
+      const s3 = await setup("4000000000003000", { type: "recurring" }); const a3 = await getAgr(s3.body.agreement_id);
+      assert.equal(a3.sca.performed, true); assert.equal(a3.sca.eci, "05"); assert.equal((await mitPay(a3.id)).body.warnings, undefined, "authenticated first payment: no warning");
+      const ch = await setup("4000000000003220", { type: "recurring" }); assert.equal(ch.status, 202); assert.equal(ch.body.agreement_id, undefined);
+      assert.equal((await api("GET", "/v1/agreements?limit=100")).body.data.length, before + 1, "no agreement until the challenge succeeds");
+      const chd = await api("POST", `/v1/payments/${ch.body.id}/3ds`, { result: "approve" }); assert.ok(chd.body.agreement_id); assert.equal((await getAgr(chd.body.agreement_id)).sca.performed, true);
+      const chf = await setup("4000000000003220", { type: "recurring" }); await api("POST", `/v1/payments/${chf.body.id}/3ds`, { result: "fail" });
+      assert.equal((await api("GET", "/v1/agreements?limit=100")).body.data.length, before + 2, "a failed challenge stores nothing");
+      // instalments: the first payment is number 1
+      const si = await setup("5555555555554444", { type: "instalment", instalments: 3 }); const ai = await getAgr(si.body.agreement_id);
+      assert.deepEqual(ai.instalments, { total: 3, used: 1 }); assert.equal((await mitPay(ai.id, { mit_type: "unscheduled" })).status, 400);
+      assert.equal((await mitPay(ai.id)).body.transaction_state, "success"); assert.deepEqual((await getAgr(ai.id)).instalments, { total: 3, used: 2 });
+      assert.equal((await mitPay(ai.id, { scenario: "decline" })).body.transaction_state, "failed"); assert.equal((await getAgr(ai.id)).instalments.used, 2, "a failed charge does not use an instalment");
+      assert.equal((await mitPay(ai.id)).body.transaction_state, "success");
+      const done = await getAgr(ai.id); assert.equal(done.state, "completed"); assert.equal(done.charges, 2);
+      assert.equal((await mitPay(ai.id)).status, 422); await waitM(() => hooks.find((h) => h.body.type === "agreement.completed" && h.body.data.id === ai.id));
+      // cancelling
+      const cx = await api("POST", `/v1/agreements/${ag.id}/cancel`); assert.equal(cx.status, 200); assert.equal(cx.body.state, "cancelled"); assert.ok(cx.body.cancelled_at);
+      const afterCancel = await mitPay(ag.id); assert.equal(afterCancel.status, 422); assert.equal(afterCancel.body.error.code, "SBX-4240");
+      assert.equal((await api("POST", `/v1/agreements/${ag.id}/cancel`)).status, 409); assert.equal((await api("POST", "/v1/agreements/agr_ffffffff/cancel")).status, 404);
+      await waitM(() => hooks.find((h) => h.body.type === "agreement.cancelled" && h.body.data.id === ag.id));
+      assert.ok((await api("GET", "/v1/agreements?state=cancelled")).body.data.every((x) => x.state === "cancelled"));
+      // the failure script can target merchant-initiated payments
+      assert.equal((await api("PUT", "/v1/script", { rules: [{ when: { initiator: "merchant" }, then: { outcome: "nsf" } }] })).status, 200);
+      const live = await setup("4111111111111111", { type: "recurring" }); assert.equal(live.body.transaction_state, "success", "customer payments unaffected");
+      const sm = await mitPay(live.body.agreement_id); assert.equal(sm.body.status.code, "SBX-4051"); assert.equal(sm.body.script_rule, 1);
+      assert.equal((await api("PUT", "/v1/script", { rules: [{ when: { initiator: "robot" }, then: { outcome: "nsf" } }] })).status, 400);
+      await api("DELETE", "/v1/script");
+      // a MIT payment can be disputed, and the scheme comes along
+      const mp = await mitPay(live.body.agreement_id); const dsp = await api("POST", `/v1/payments/${mp.body.id}/dispute`, { reason: "fraud" });
+      assert.equal(dsp.status, 201); assert.equal(dsp.body.scheme, "visa"); assert.equal(dsp.body.liability_shifted, false);
+      // docs endpoint and housekeeping
+      const sj = await (await fetch(BASE + "/v1/schemes")).json(); assert.equal(sj.schemes[1].merchant_initiated.retry_advice.decline.code, "MAC 03");
+      assert.equal((await api("GET", "/v1/agreements/agr_ffffffff")).status, 404);
+      assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/agreements")).body.data.length, 0);
+    }
+
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
   finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }

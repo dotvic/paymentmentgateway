@@ -243,11 +243,46 @@ function effects(acc, p) {
   if (p.transaction_type === "refund") par.refunded_amount = r2(par.refunded_amount + p.amount);
   if (p.transaction_type === "void") par.voided = true;
 }
+// ---------- card on file: agreements and merchant-initiated payments (MIT) ----------
+// A customer-initiated first payment (store_credential) creates an agreement. Later payments with initiator "merchant"
+// charge the stored card without the customer present: no card number, no 3-D Secure.
+const MIT_TYPES = ["recurring", "instalment", "unscheduled"];
+const MIT_SCENARIOS = ["auto", "approve", "decline", "nsf", "expired", "timeout"];
+const MAX_AGREEMENTS = 50;
+function emitAgreement(acc, a, type) { deliver(acc, { id: "evt_" + rnd(8), type, created_at: new Date().toISOString(), data: { ...a } }); }
+function makeAgreement(acc, p) {
+  const st = p._store, au = p.authentication || null;
+  const a = {
+    id: "agr_" + rnd(8), state: "active", type: st.type, scheme: p.scheme || null, card_last4: p.card_last4 || null, currency: p.currency,
+    created_at: new Date().toISOString(), initial_payment_id: p.id, network_transaction_id: p.network_transaction_id || null,
+    sca: { performed: !!au && au.trans_status === "Y", trans_status: au ? au.trans_status : null, eci: au ? au.eci : null },
+    instalments: st.type === "instalment" ? { total: st.instalments, used: 1 } : null, charges: 0, last_charge_at: null, last_result: null, cancelled_at: null,
+  };
+  acc.agreements = acc.agreements || [];
+  if (acc.agreements.length >= MAX_AGREEMENTS) { const i = acc.agreements.findLastIndex((x) => x.state !== "active"); acc.agreements.splice(i < 0 ? acc.agreements.length - 1 : i, 1); }
+  acc.agreements.unshift(a); p.agreement_id = a.id;
+  emitAgreement(acc, a, "agreement.created");
+}
+function agreementEffects(acc, p, ok) {
+  if (ok && p._store && !p.agreement_id) return makeAgreement(acc, p);
+  if (p.initiator !== "merchant" || !p.agreement_id) return;
+  const a = (acc.agreements || []).find((x) => x.id === p.agreement_id);
+  if (!a) return;
+  a.last_result = ok ? { payment_id: p.id, state: "success" } : { payment_id: p.id, state: "failed", code: p.status.code, scheme_response: p.scheme_response || null };
+  if (!ok) return;
+  a.charges++; a.last_charge_at = new Date().toISOString();
+  if (a.instalments && ++a.instalments.used >= a.instalments.total) { a.state = "completed"; emitAgreement(acc, a, "agreement.completed"); }
+}
+function mitWarnings(a, currency) {
+  return currency === "EUR" && !a.sca.performed ? ["The first payment of this agreement was not authenticated with 3-D Secure. In the EU, issuers may decline merchant-initiated payments that rest on a first payment without strong customer authentication."] : [];
+}
 function settle(acc, p, ok, code, message) {
   p.transaction_state = ok ? "success" : "failed";
   p.status = { code, message };
   delete p._3ds;
+  if (ok && p.initiator && p.scheme && !p.network_transaction_id) p.network_transaction_id = SCH.newNtid(p.scheme);
   if (ok) effects(acc, p);
+  agreementEffects(acc, p, ok);
   save(acc);
   setTimeout(() => emit(acc, p), 300);
 }
@@ -270,7 +305,7 @@ function parseScript(b) {
     only(r, ["name", "when", "then"], at);
     const w = r.when || {}, t = r.then || {};
     if (typeof w !== "object" || typeof t !== "object" || Array.isArray(w) || Array.isArray(t)) throw bad(400, "invalid_script", `${at}: when and then must be objects`);
-    only(w, ["nth", "every", "amount_gte", "amount_lte", "currency", "method", "transaction_type", "scheme", "probability"], at + " when");
+    only(w, ["nth", "every", "amount_gte", "amount_lte", "currency", "method", "transaction_type", "scheme", "initiator", "probability"], at + " when");
     only(t, ["outcome", "latency_ms", "http_error", "webhook"], at + " then");
     const when = {};
     if ("nth" in w) when.nth = num(w.nth, 1, 1e9, `${at}: nth`, true);
@@ -280,6 +315,7 @@ function parseScript(b) {
     if ("probability" in w) when.probability = num(w.probability, 0, 1, `${at}: probability`);
     if ("currency" in w) { if (!CURRENCIES.includes(w.currency)) throw bad(400, "invalid_script", `${at}: currency must be one of ${CURRENCIES.join(", ")}`); when.currency = w.currency; }
     if ("method" in w) { if (!TYPES[w.method]) throw bad(400, "invalid_script", `${at}: method must be one of ${Object.keys(TYPES).join(", ")}`); when.method = w.method; }
+    if ("initiator" in w) { if (!["customer", "merchant"].includes(w.initiator)) throw bad(400, "invalid_script", `${at}: initiator must be customer or merchant`); when.initiator = w.initiator; }
     if ("scheme" in w) { if (!SCH.SCHEMES[w.scheme]) throw bad(400, "invalid_script", `${at}: scheme must be one of ${Object.keys(SCH.SCHEMES).join(", ")}`); when.scheme = w.scheme; }
     if ("transaction_type" in w) { if (!Object.values(TYPES).some((l) => l.includes(w.transaction_type))) throw bad(400, "invalid_script", `${at}: unknown transaction_type`); when.transaction_type = w.transaction_type; }
     const then = {};
@@ -317,6 +353,7 @@ function matchScript(acc, ctx) {
     if (w.method && ctx.method !== w.method) continue;
     if (w.transaction_type && ctx.type !== w.transaction_type) continue;
     if (w.scheme && ctx.scheme !== w.scheme) continue;
+    if (w.initiator && ctx.initiator !== w.initiator) continue;
     if (w.probability !== undefined && Math.random() >= w.probability) continue;
     return { n: i + 1, rule: sc.rules[i] };
   }
@@ -327,6 +364,8 @@ function matchScript(acc, ctx) {
 function schemeResponse(p, outcome) {
   const r = SCH.responseFor(p.scheme, outcome);
   if (r) p.scheme_response = { scheme: p.scheme, code: r.code, message: r.message, retry_advice: r.retry };
+  const adv = p.initiator === "merchant" && SCH.mitAdviceFor(p.scheme, outcome);
+  if (r && adv) p.scheme_response.merchant_advice = { action: adv.action, code: adv.code, text: adv.text };
 }
 function createPayment(acc, b) {
   const meta = { latency_ms: 0 };
@@ -340,8 +379,33 @@ function createPaymentInner(acc, b, meta) {
   if (dup) throw bad(409, "duplicate_request", "request_id already used; fetch the original transaction instead", { transaction_id: dup.id });
   if (!TYPES[b.method]) throw bad(400, "invalid_request", `method must be one of ${Object.keys(TYPES).join(", ")}`);
   if (!TYPES[b.method].includes(b.transaction_type)) throw bad(400, "invalid_request", `transaction_type for ${b.method} must be one of ${TYPES[b.method].join(", ")}`);
+  const initiator = b.initiator === undefined ? "customer" : b.initiator, mit = initiator === "merchant";
+  if (!["customer", "merchant"].includes(initiator)) throw bad(400, "invalid_request", "initiator must be customer or merchant");
+  if (mit && (b.method !== "card" || !["purchase", "authorization"].includes(b.transaction_type))) throw bad(400, "invalid_request", "initiator merchant is only available for card purchase and authorization");
   const scenario = b.scenario || "auto";
-  if (!SCENARIOS.includes(scenario)) throw bad(400, "invalid_request", `scenario must be one of ${SCENARIOS.join(", ")}`);
+  const allowed = mit ? MIT_SCENARIOS : SCENARIOS;
+  if (!allowed.includes(scenario)) throw bad(400, "invalid_request", `scenario must be one of ${allowed.join(", ")}` + (mit ? " (3-D Secure is not possible without the customer)" : ""));
+  let store = null, agr = null, mitType = null;
+  if (b.store_credential !== undefined) {
+    const sc = b.store_credential;
+    if (mit || b.method !== "card" || !["purchase", "authorization"].includes(b.transaction_type)) throw bad(400, "invalid_request", "store_credential belongs on a customer-initiated card purchase or authorization");
+    if (!sc || typeof sc !== "object" || Array.isArray(sc) || !MIT_TYPES.includes(sc.type)) throw bad(400, "invalid_request", `store_credential must be {"type": one of ${MIT_TYPES.join(", ")}}`);
+    store = { type: sc.type };
+    if (sc.type === "instalment") {
+      if (!Number.isInteger(sc.instalments) || sc.instalments < 2 || sc.instalments > 60) throw bad(400, "invalid_request", "store_credential.instalments must be a whole number from 2 to 60 (the first payment counts as number 1)");
+      store.instalments = sc.instalments;
+    } else if (sc.instalments !== undefined) throw bad(400, "invalid_request", "store_credential.instalments is only for type instalment");
+    if ((acc.agreements || []).filter((x) => x.state === "active").length >= MAX_AGREEMENTS) throw bad(429, "too_many_agreements", `At most ${MAX_AGREEMENTS} active agreements; cancel some first`);
+  }
+  if (mit) {
+    if (b.card_number !== undefined || b.card_cvv !== undefined) throw bad(400, "invalid_request", "Merchant-initiated payments use the card on file. Do not send card_number or card_cvv");
+    agr = (acc.agreements || []).find((x) => x.id === b.agreement_id);
+    if (!agr) throw bad(b.agreement_id ? 404 : 400, b.agreement_id ? "not_found" : "invalid_request", b.agreement_id ? "agreement_id not found" : "agreement_id is required when initiator is merchant");
+    if (agr.state !== "active") throw bad(422, "SBX-4240", `Agreement is ${agr.state}; no more merchant-initiated payments are allowed`);
+    mitType = b.mit_type === undefined ? agr.type : b.mit_type;
+    if (mitType !== agr.type) throw bad(400, "invalid_request", `mit_type must be ${agr.type} for this agreement`);
+    if (agr.instalments && agr.instalments.used >= agr.instalments.total) throw bad(422, "SBX-4242", "All instalments have been collected");
+  }
   if (scenario === "3ds" && (b.method !== "card" || !["purchase", "authorization"].includes(b.transaction_type))) throw bad(400, "invalid_request", "3ds scenario is only available for card purchase and authorization");
 
   const type = b.transaction_type;
@@ -359,8 +423,8 @@ function createPaymentInner(acc, b, meta) {
   if (parent) { const e = checkParent(parent, type, amount); if (e) throw bad(422, e[0], e[1]); }
 
   const card = String(b.card_number || "").replace(/\s/g, "");
-  let scheme = null;
-  if (b.method === "card" && !parent) {
+  let scheme = mit ? agr.scheme : null;
+  if (b.method === "card" && !parent && !mit) {
     if (scenario === "auto" || card) {
       const chk = SCH.check(card, b.card_cvv);
       if (chk.error && (scenario === "auto" || card)) throw bad(400, "invalid_request", chk.error + (scenario === "auto" ? "" : " (or leave card_number out when you set a scenario)"));
@@ -369,15 +433,15 @@ function createPaymentInner(acc, b, meta) {
   }
 
   let outcome = scenario;
-  if (scenario === "auto") outcome = parent || b.method !== "card" ? "approve" : CARDS[card] || (scheme && !SCH.luhn(card) ? "invalid_card" : "decline");
+  if (scenario === "auto") outcome = parent || b.method !== "card" || mit ? "approve" : CARDS[card] || (scheme && !SCH.luhn(card) ? "invalid_card" : "decline");
 
-  const hit = matchScript(acc, { amount, currency, method: b.method, type, scheme });
+  const hit = matchScript(acc, { amount, currency, method: b.method, type, scheme, initiator });
   let latency_ms = 0, hook = null;
   if (hit) {
     const t = hit.rule.then;
     if (t.http_error) { meta.latency_ms = t.latency_ms || 0; return { status: t.http_error, injected: true, body: { error: { code: "SBX-5000", message: `Gateway error injected by your failure script (rule ${hit.n}). No payment was created; retry with the same request_id.`, script_rule: hit.n } } }; }
     latency_ms = meta.latency_ms = t.latency_ms || 0; hook = t.webhook || null;
-    const canTds = b.method === "card" && !parent && ["purchase", "authorization"].includes(type);
+    const canTds = b.method === "card" && !parent && !mit && ["purchase", "authorization"].includes(type);
     if (t.outcome && (canTds || !t.outcome.startsWith("3ds"))) outcome = t.outcome;
   }
 
@@ -386,7 +450,14 @@ function createPaymentInner(acc, b, meta) {
     amount, currency, parent_transaction_id: parent ? parent.id : null, status: { code: "SBX-2010", message: "Processing" },
     created_at: new Date().toISOString(),
   };
-  if (b.method === "card" && !parent && card) { p.card_last4 = card.slice(-4); if (scheme) p.scheme = scheme; }
+  if (mit) {
+    p.initiator = "merchant"; p.agreement_id = agr.id; p.mit_type = mitType; p.card_last4 = agr.card_last4;
+    if (agr.scheme) p.scheme = agr.scheme;
+    if (agr.network_transaction_id) p.original_network_transaction_id = agr.network_transaction_id;
+    const w = mitWarnings(agr, currency); if (w.length) p.warnings = w;
+  } else if (b.method === "card" && !parent) p.initiator = "customer";
+  if (store) p._store = store;
+  if (b.method === "card" && !parent && !mit && card) { p.card_last4 = card.slice(-4); if (scheme) p.scheme = scheme; }
   else if (parent && parent.scheme) p.scheme = parent.scheme;
   if (hit) p.script_rule = hit.n;
   if (hook) p._hook = hook;
@@ -691,6 +762,25 @@ async function route(req, res) {
     save(acc); emitDispute(acc, d, "dispute.created");
     return send(res, 201, DSP.publicDispute(d));
   }
+  if (path === "/v1/agreements" || path.startsWith("/v1/agreements/")) {
+    const ags = acc.agreements || [];
+    if (m === "GET" && path === "/v1/agreements") {
+      const limit = Math.min(Math.max(+url.searchParams.get("limit") || 25, 1), 100), state = url.searchParams.get("state");
+      return send(res, 200, { data: ags.filter((a) => !state || a.state === state).slice(0, limit) });
+    }
+    if ((mt = path.match(/^\/v1\/agreements\/(agr_[a-f0-9]+)(\/cancel)?$/))) {
+      const a = ags.find((x) => x.id === mt[1]);
+      if (!a) throw bad(404, "not_found", "Agreement not found");
+      if (m === "GET" && !mt[2]) return send(res, 200, a);
+      if (m === "POST" && mt[2]) {
+        if (a.state !== "active") throw bad(409, "invalid_state", `Agreement is already ${a.state}`);
+        a.state = "cancelled"; a.cancelled_at = new Date().toISOString();
+        save(acc); emitAgreement(acc, a, "agreement.cancelled");
+        return send(res, 200, a);
+      }
+    }
+    throw bad(404, "not_found", "Unknown endpoint");
+  }
   if (path === "/v1/disputes" || path.startsWith("/v1/disputes/")) {
     sweepDisputes(acc);
     const ds = acc.disputes || [], find = (id) => { const d = ds.find((x) => x.id === id); if (!d) throw bad(404, "not_found", "Dispute not found"); return d; };
@@ -836,7 +926,7 @@ async function route(req, res) {
     purgeAccount(acc.id);
     return send(res, 200, { deleted: true });
   }
-  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; acc.disputes = []; save(acc); return send(res, 200, { cleared: true }); }
+  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; acc.disputes = []; acc.agreements = []; save(acc); return send(res, 200, { cleared: true }); }
   throw bad(404, "not_found", "Unknown endpoint");
 }
 

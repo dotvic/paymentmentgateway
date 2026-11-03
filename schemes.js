@@ -24,6 +24,15 @@ const SCHEMES = {
       { code: "13.3", category: "not_as_described", reason: "Not as described or defective" },
       { code: "12.6.1", category: "duplicate", reason: "Duplicate processing" },
     ],
+    mit: {
+      ntid: { name: "Transaction ID", chars: "0123456789", length: 15 },
+      advice: {
+        decline: { action: "do_not_retry", code: "Category 1", text: "Never retry. The issuer will not approve this card." },
+        nsf: { action: "retry_later", code: "Category 2", text: "Retry later, within the scheme's limits on retries." },
+        expired: { action: "update_credentials", code: "Category 3", text: "Fix the card data (new expiry or card) before retrying." },
+        invalid_card: { action: "update_credentials", code: "Category 3", text: "Fix the card data before retrying." },
+      },
+    },
     note: "Visa checks that card numbers start with 4. Responses use ISO 8583 field 39 codes.",
   },
   mastercard: {
@@ -44,6 +53,15 @@ const SCHEMES = {
       { code: "4853", category: "not_as_described", reason: "Cardholder dispute: not as described or defective" },
       { code: "4834", category: "duplicate", reason: "Duplicate processing" },
     ],
+    mit: {
+      ntid: { name: "Trace ID (Banknet reference)", chars: "ABCDEFGHJKLMNPQRSTUVWXYZ0123456789", length: 9 },
+      advice: {
+        decline: { action: "do_not_retry", code: "MAC 03", text: "Do not try again." },
+        nsf: { action: "retry_later", code: "MAC 02", text: "Try again later." },
+        expired: { action: "update_credentials", code: "MAC 01", text: "New account information is available; ask the customer or use the account updater." },
+        invalid_card: { action: "update_credentials", code: "MAC 01", text: "New account information is available." },
+      },
+    },
     note: "Mastercard numbers start with 51 to 55 or 2221 to 2720. The 3DS ECI values are 02, 01 and 00, not 05, 06 and 07.",
   },
   amex: {
@@ -64,6 +82,15 @@ const SCHEMES = {
       { code: "C31", category: "not_as_described", reason: "Goods or services not as described" },
       { code: "P08", category: "duplicate", reason: "Duplicate charge" },
     ],
+    mit: {
+      ntid: { name: "Transaction Identifier (TID)", chars: "0123456789", length: 15 },
+      advice: {
+        decline: { action: "do_not_retry", code: "Do not retry", text: "Do not retry the same card; ask for another payment method." },
+        nsf: { action: "retry_later", code: "Retry later", text: "Retry later." },
+        expired: { action: "update_credentials", code: "New details needed", text: "Ask the customer for new card details." },
+        invalid_card: { action: "update_credentials", code: "New details needed", text: "Ask the customer for new card details." },
+      },
+    },
     note: "Amex numbers have 15 digits and start with 34 or 37. The security code (CID) has 4 digits and sits on the front. Responses use Amex action codes, not ISO 8583 codes.",
   },
 };
@@ -109,6 +136,13 @@ function check(pan, cvv) {
 const eciFor = (scheme, status) => (SCHEMES[scheme] || SCHEMES.visa).eci[status];
 const tdsFor = (scheme) => (SCHEMES[scheme] || SCHEMES.visa).tds;
 // The scheme's own response for one of our outcomes (decline, nsf, expired, invalid_card), or null.
+// Retry guidance for merchant-initiated payments (simplified): what the scheme tells you to do after a decline.
+const mitAdviceFor = (scheme, outcome) => (SCHEMES[scheme] && SCHEMES[scheme].mit.advice[outcome]) || null;
+// A made-up network transaction ID in the scheme's own style. Real ones come from the network in the authorization response.
+function newNtid(scheme, rnd) {
+  const n = SCHEMES[scheme].mit.ntid, bytes = require("crypto").randomBytes(n.length);
+  return Array.from(bytes, (b) => n.chars[b % n.chars.length]).join("");
+}
 const responseFor = (scheme, outcome) => (SCHEMES[scheme] && SCHEMES[scheme].responses[outcome]) || null;
 
 // Test cards. The number decides the outcome. 3ds outcomes match the existing Visa 3DS test cards.
@@ -135,9 +169,9 @@ const TEST_CARDS = [
 function publicProfiles() {
   return Object.values(SCHEMES).map((s) => ({
     id: s.id, name: s.name, number_lengths: s.lengths, security_code: s.cvv, three_ds: { brand: s.tds.brand, authentication_value: s.tds.authValueName, eci: s.eci },
-    responses: s.responses, chargeback_reasons: s.chargebacks, note: s.note,
+    responses: s.responses, chargeback_reasons: s.chargebacks, merchant_initiated: { network_transaction_id: s.mit.ntid.name, retry_advice: s.mit.advice }, note: s.note,
     test_cards: TEST_CARDS.filter((c) => c.scheme === s.id).map(({ number, outcome, label }) => ({ number, outcome, label })),
   }));
 }
 
-module.exports = { SCHEMES, TEST_CARDS, detect, luhn, check, eciFor, tdsFor, responseFor, publicProfiles };
+module.exports = { SCHEMES, TEST_CARDS, detect, luhn, check, eciFor, tdsFor, responseFor, mitAdviceFor, newNtid, publicProfiles };

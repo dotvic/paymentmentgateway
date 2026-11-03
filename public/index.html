@@ -174,7 +174,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -295,6 +295,39 @@ exactly like the list under "Test cards" below.</pre>
   <div class="card tablewrap" id="ledger"></div>
 </section>
 
+<section class="block hidden" id="cof">
+  <h2>Card on file</h2>
+  <p class="sub">Subscriptions, instalments and top-ups charge a stored card when the customer is not there. First the customer pays once and agrees to store the card (a customer-initiated payment, ideally with 3-D Secure). After that you send merchant-initiated payments (MIT) that name the agreement instead of a card number. The scheme tells you whether to retry a decline.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:16px">1. Customer pays and the card is stored</h3>
+      <fieldset id="cofForm">
+        <div class="row" style="grid-template-columns:minmax(0,1fr) minmax(0,1.4fr)"><div><label for="cofScheme">Card scheme</label><select id="cofScheme"><option value="visa">Visa</option><option value="mastercard">Mastercard</option><option value="amex">American Express</option></select></div>
+        <div><label for="cofType">Agreement type</label><select id="cofType"><option value="recurring">Recurring (subscription)</option><option value="instalment">Instalments</option><option value="unscheduled">Unscheduled (top-up, delayed charge)</option></select></div></div>
+        <div class="row" style="grid-template-columns:repeat(auto-fit,minmax(110px,1fr))"><div id="cofInstWrap" class="hidden"><label for="cofInst">Instalments in total</label><input id="cofInst" type="number" min="2" max="60" step="1" value="3"></div>
+        <div><label for="cofAmount">First payment</label><input id="cofAmount" type="number" min="0.01" step="0.01" value="9.99"></div>
+        <div><label for="cofCurrency">Currency</label><select id="cofCurrency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
+        <label class="check"><input type="checkbox" id="cofTds"> Authenticate with 3-D Secure (frictionless)</label>
+        <div class="actions"><button class="primary" id="cofStore">Pay and store card</button></div>
+        <p class="err" id="cofErr" role="alert"></p>
+      </fieldset>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:16px">2. You charge the card later</h3>
+      <fieldset id="mitForm">
+        <label for="mitAgr">Agreement</label><select id="mitAgr"></select>
+        <div class="row"><div><label for="mitAmount">Amount</label><input id="mitAmount" type="number" min="0.01" step="0.01" value="9.99"></div>
+        <div><label for="mitCurrency">Currency</label><select id="mitCurrency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
+        <label for="mitOutcome">What the bank does</label><select id="mitOutcome"><option value="approve">Approves</option><option value="nsf">Declines: no funds (retry later)</option><option value="decline">Declines: hard decline (do not retry)</option><option value="expired">Declines: card expired (needs new details)</option></select>
+        <div class="actions"><button class="primary" id="mitRun">Charge the card</button></div>
+        <p class="err" id="mitErr" role="alert"></p>
+      </fieldset>
+    </div>
+  </div>
+  <div class="card" id="cofOut" style="margin-top:12px"><p class="note" style="margin:0">Store a card, then charge it. The result of each step shows here: the network transaction ID that links the payments, any warning, and the retry advice after a decline.</p></div>
+  <div class="card tablewrap" id="agrList" style="margin-top:12px"></div>
+</section>
+
 <section class="block hidden" id="disputes">
   <h2>Disputes</h2>
   <p class="sub">A cardholder can tell their bank they do not accept a card payment. The bank raises a dispute (a chargeback), the money is pulled back from you, and you have a short time to send evidence. Here you play the bank to start one, then play the merchant to answer it. Webhooks <span class="mono">dispute.created</span>, <span class="mono">dispute.updated</span>, <span class="mono">dispute.won</span> and <span class="mono">dispute.lost</span> are sent as it moves.</p>
@@ -339,6 +372,7 @@ exactly like the list under "Test cards" below.</pre>
       <div class="tablewrap"><table class="fields"><tbody>
         <tr><td class="mono">when.nth</td><td>Only the Nth payment since you saved the script (1, 2, 3...).</td></tr>
         <tr><td class="mono">when.every</td><td>Every Nth payment.</td></tr>
+        <tr><td class="mono">when.initiator</td><td>Only payments made by the <span class="mono">customer</span> or by the <span class="mono">merchant</span> (card on file).</td></tr>
         <tr><td class="mono">when.scheme</td><td>Only cards of one scheme: <span class="mono">visa</span>, <span class="mono">mastercard</span> or <span class="mono">amex</span>.</td></tr>
         <tr><td class="mono">when.amount_gte / amount_lte</td><td>Amount at or above or at or below a value.</td></tr>
         <tr><td class="mono">when.currency / method / transaction_type</td><td>Match one currency, method or type.</td></tr>
@@ -498,6 +532,7 @@ function renderSession() {
   if (!on) { LABLOG = null; LABID = null; $("#labOut").innerHTML = LAB_EMPTY; }
   $("#dash").classList.toggle("hidden", !on);
   $("#disputes").classList.toggle("hidden", !on);
+  $("#cof").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
   $("#whForm").classList.toggle("hidden", !on);
   $("#whRefreshBox").classList.toggle("hidden", !on);
@@ -721,7 +756,7 @@ var refreshTimer = null;
 // Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
 function refreshAll() {
   if (!key || refreshTimer) return;
-  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); } }, 3000);
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); } }, 3000);
 }
 
 // ---------- 3-D Secure lab ----------
@@ -1111,6 +1146,68 @@ $("#dpDetail").addEventListener("click", async function (e) {
 });
 async function loadDpCats() { try { var r = await fetch("/v1/schemes"); if (r.ok) { DP_CATS = (await r.json()).dispute_categories; onDpPay(); } } catch (e) {} }
 loadDpCats();
+
+// ---------- card on file (agreements and merchant-initiated payments) ----------
+var AGRS = [];
+var ADVICE_TEXT = { do_not_retry: "Do not retry this card.", retry_later: "You may retry later.", update_credentials: "Get new card details before retrying." };
+function cofOut(h) { $("#cofOut").innerHTML = h; }
+function cofCard() { return cardFor($("#cofScheme").value, $("#cofTds").checked ? "3ds_Y" : "approve", $("#cofTds").checked ? "4000000000003000" : "4111111111111111"); }
+function paymentSummary(p) {
+  var h = '<p style="margin:0 0 6px"><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + "</span> <strong>" + fmt(p.amount) + " " + esc(p.currency) + "</strong> · " + esc(p.initiator === "merchant" ? "merchant-initiated" + (p.mit_type ? " (" + p.mit_type + ")" : "") : "customer-initiated") + (p.scheme ? " · " + esc(p.scheme) : "") + (p.card_last4 ? " ····" + esc(p.card_last4) : "") + "</p>";
+  if (p.network_transaction_id) h += '<p class="note" style="margin:0 0 4px"><strong>Network transaction ID:</strong> <span class="mono">' + esc(p.network_transaction_id) + "</span>" + (p.original_network_transaction_id ? ' · links back to the first payment\'s <span class="mono">' + esc(p.original_network_transaction_id) + "</span>" : " · MIT payments will quote this one as their original") + "</p>";
+  if (p.agreement_id) h += '<p class="note" style="margin:0 0 4px"><strong>Agreement:</strong> <span class="mono">' + esc(p.agreement_id) + "</span></p>";
+  (p.warnings || []).forEach(function (w) { h += '<p class="note" style="margin:0 0 4px"><span class="badge pending">warning</span> ' + esc(w) + "</p>"; });
+  if (p.scheme_response) { var sr = p.scheme_response, ad = sr.merchant_advice; h += '<p class="note" style="margin:0 0 4px"><strong>' + esc(sr.scheme) + " response " + esc(sr.code) + ":</strong> " + esc(sr.message) + (ad ? '. <strong>Advice (' + esc(ad.code) + "):</strong> " + esc(ADVICE_TEXT[ad.action] || ad.action) + " " + esc(ad.text) : "") + "</p>"; }
+  else if (p.transaction_state === "failed") h += '<p class="note" style="margin:0 0 4px">' + esc(p.status.message) + "</p>";
+  return h;
+}
+async function refreshAgreements() {
+  if (!key) return;
+  var r = await api("GET", "/v1/agreements?limit=25");
+  if (r.status !== 200) return;
+  AGRS = r.body.data;
+  var act = AGRS.filter(function (a) { return a.state === "active"; }), sel = $("#mitAgr"), keep = sel.value;
+  sel.innerHTML = act.length ? act.map(function (a) { return '<option value="' + esc(a.id) + '">' + esc(a.id + " · " + a.type + (a.scheme ? " · " + a.scheme : "") + " ····" + a.card_last4) + "</option>"; }).join("") : '<option value="">No active agreement yet</option>';
+  if (keep && act.some(function (a) { return a.id === keep; })) sel.value = keep;
+  $("#mitRun").disabled = !act.length;
+  $("#agrList").innerHTML = AGRS.length ? "<table><thead><tr><th>ID</th><th>Type</th><th>Card</th><th>3-D Secure first</th><th>Charges</th><th>State</th><th></th></tr></thead><tbody>" + AGRS.map(function (a) {
+    var ch = a.instalments ? a.instalments.used + " of " + a.instalments.total + " paid" : a.charges + " charged";
+    return '<tr><td class="mono">' + esc(a.id) + "</td><td>" + esc(a.type) + "</td><td>" + esc((a.scheme || "card") + " ····" + a.card_last4) + "</td><td>" + (a.sca.performed ? "Yes (ECI " + esc(a.sca.eci) + ")" : "No") + "</td><td>" + esc(ch) + '</td><td><span class="badge ' + (a.state === "active" ? "success" : "pending") + '">' + esc(a.state) + "</span></td><td>" + (a.state === "active" ? '<button class="small" data-agr-cancel="' + esc(a.id) + '">Cancel</button>' : "") + "</td></tr>";
+  }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No agreements yet.</p>';
+}
+$("#cofType").onchange = function () { $("#cofInstWrap").classList.toggle("hidden", this.value !== "instalment"); };
+$("#cofStore").onclick = async function () {
+  $("#cofErr").textContent = "";
+  var amount = parseFloat($("#cofAmount").value);
+  if (!(amount > 0)) { $("#cofErr").textContent = "Enter an amount greater than 0."; return; }
+  var st = { type: $("#cofType").value };
+  if (st.type === "instalment") st.instalments = parseInt($("#cofInst").value, 10);
+  var req = bodyFor({ method: "card", transaction_type: "purchase", amount: amount, currency: $("#cofCurrency").value, card_number: cofCard(), store_credential: st });
+  $("#cofStore").disabled = true;
+  try {
+    var r = await api("POST", "/v1/payments", req);
+    if (r.status === 201) { cofOut("<p style=\"margin:0 0 8px\"><strong>Card stored.</strong> Now charge it in step 2.</p>" + paymentSummary(r.body)); await refreshAgreements(); refreshAll(); }
+    else $("#cofErr").textContent = errMsg(r);
+  } finally { $("#cofStore").disabled = false; }
+};
+$("#mitRun").onclick = async function () {
+  $("#mitErr").textContent = "";
+  var amount = parseFloat($("#mitAmount").value);
+  if (!(amount > 0)) { $("#mitErr").textContent = "Enter an amount greater than 0."; return; }
+  var req = bodyFor({ method: "card", transaction_type: "purchase", amount: amount, currency: $("#mitCurrency").value, initiator: "merchant", agreement_id: $("#mitAgr").value, scenario: $("#mitOutcome").value });
+  $("#mitRun").disabled = true;
+  try {
+    var r = await api("POST", "/v1/payments", req);
+    if (r.status === 201) { cofOut(paymentSummary(r.body) + '<details class="f"><summary>Request and response</summary><pre class="code mono">' + esc("POST /v1/payments\n" + JSON.stringify(req, null, 2) + "\n\n" + JSON.stringify(r.body, null, 2)) + "</pre></details>"); await refreshAgreements(); refreshAll(); }
+    else $("#mitErr").textContent = errMsg(r);
+  } finally { $("#mitRun").disabled = !$("#mitAgr").value; }
+};
+$("#agrList").addEventListener("click", async function (e) {
+  var b = e.target.closest("button[data-agr-cancel]"); if (!b) return;
+  var r = await api("POST", "/v1/agreements/" + b.dataset.agrCancel + "/cancel", {});
+  if (r.status === 200) cofOut('<p style="margin:0"><strong>Agreement ' + esc(r.body.id) + " cancelled.</strong> Further merchant-initiated payments on it are refused.</p>");
+  refreshAgreements();
+});
 $("#method").onchange = onMethod;
 onMethod();
 Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });
