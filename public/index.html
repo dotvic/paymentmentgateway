@@ -32,7 +32,8 @@ a{color:var(--accent)}
 .wrap{max-width:1120px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
 header.top{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:18px 0;flex-wrap:wrap}
 .brand{font-weight:700;font-size:20px;letter-spacing:-.02em;text-decoration:none;color:var(--ink)}
-nav a{margin-left:20px;color:var(--mute);text-decoration:none;font-size:15px}
+nav{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:2px 20px}
+nav a{color:var(--mute);text-decoration:none;font-size:15px}
 nav a:hover{color:var(--ink)}
 .hero{padding:clamp(28px,6vw,64px) 0 28px}
 h1{font-size:clamp(34px,6vw,64px);line-height:1.04;letter-spacing:-.035em;margin:0 0 16px;font-weight:700;max-width:16ch}
@@ -173,7 +174,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -292,6 +293,28 @@ exactly like the list under "Test cards" below.</pre>
   <h2>Your payments</h2>
   <p class="sub">Capture, refund or void a payment to try follow-up transactions. Amounts are checked against the parent payment.</p>
   <div class="card tablewrap" id="ledger"></div>
+</section>
+
+<section class="block hidden" id="disputes">
+  <h2>Disputes</h2>
+  <p class="sub">A cardholder can tell their bank they do not accept a card payment. The bank raises a dispute (a chargeback), the money is pulled back from you, and you have a short time to send evidence. Here you play the bank to start one, then play the merchant to answer it. Webhooks <span class="mono">dispute.created</span>, <span class="mono">dispute.updated</span>, <span class="mono">dispute.won</span> and <span class="mono">dispute.lost</span> are sent as it moves.</p>
+  <div class="grid2">
+    <div class="card">
+      <h3 style="margin:0 0 4px;font-size:16px">1. The bank raises a dispute</h3>
+      <fieldset id="dpForm">
+        <label for="dpPay">Payment</label><select id="dpPay"></select>
+        <label for="dpReason">Reason</label><select id="dpReason"></select>
+        <div class="row"><div><label for="dpAmount">Amount (empty = all)</label><input id="dpAmount" type="number" min="0.01" step="0.01" placeholder="full amount"></div>
+        <div><label for="dpWindow">Time to respond</label><select id="dpWindow"><option value="604800">7 days</option><option value="120">2 minutes</option><option value="20">20 seconds</option></select></div></div>
+        <label for="dpOutcome">How the bank decides</label><select id="dpOutcome"><option value="auto">By your evidence</option><option value="win">You win</option><option value="lose">You lose</option></select>
+        <div class="actions"><button class="primary" id="dpRaise">Raise dispute</button></div>
+        <p class="err" id="dpErr" role="alert"></p>
+        <p class="note" id="dpHint" style="margin:0"></p>
+      </fieldset>
+    </div>
+    <div class="card" id="dpDetail"><p class="note" style="margin:0">Raise a dispute, or pick one from the list. You can also use the Dispute button next to a card payment in the list above. Disputes need a successful card purchase or capture.</p></div>
+  </div>
+  <div class="card tablewrap" id="dpList" style="margin-top:12px"></div>
 </section>
 
 <section class="block" id="script">
@@ -474,6 +497,7 @@ function renderSession() {
   $("#labLocked").classList.toggle("hidden", on);
   if (!on) { LABLOG = null; LABID = null; $("#labOut").innerHTML = LAB_EMPTY; }
   $("#dash").classList.toggle("hidden", !on);
+  $("#disputes").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
   $("#whForm").classList.toggle("hidden", !on);
   $("#whRefreshBox").classList.toggle("hidden", !on);
@@ -579,11 +603,13 @@ function actionsFor(p) {
   var a = [];
   if (p.transaction_type === "authorization" && r2(p.amount - p.captured_amount) > 0) a.push(["capture-authorization", "Capture", r2(p.amount - p.captured_amount)]);
   if (PAY.indexOf(p.transaction_type) >= 0 && r2(p.amount - p.refunded_amount) > 0) a.push(["refund", "Refund", r2(p.amount - p.refunded_amount)]);
-  if (p.transaction_type !== "refund" && p.transaction_type !== "void") a.push(["void", "Void", p.amount]);
+  if (p.transaction_type !== "refund" && p.transaction_type !== "void" && !p.dispute_id) a.push(["void", "Void", p.amount]);
   return a;
 }
+function canDispute(p) { return p.method === "card" && p.transaction_state === "success" && !p.voided && !p.dispute_id && (p.transaction_type === "purchase" || p.transaction_type === "capture-authorization") && r2(p.amount - (p.refunded_amount || 0)) > 0; }
 function detail(p) {
   if (p.voided) return "voided";
+  if (p.dispute_state) return "dispute " + p.dispute_state.replace("_", " ") + (p.disputed_amount ? ", " + fmt(p.disputed_amount) + " held back" : "");
   if (p.transaction_state === "failed") return p.status.message;
   if (p.transaction_type === "authorization") return "captured " + fmt(p.captured_amount || 0);
   if (PAY.indexOf(p.transaction_type) >= 0) return "refunded " + fmt(p.refunded_amount || 0);
@@ -594,12 +620,15 @@ async function refreshLedger() {
   var r = await api("GET", "/v1/payments?limit=25");
   if (r.status !== 200) return;
   LAST = r.body.data;
+  buildDpPay();
   $("#ledger").innerHTML = LAST.length ? "<table><thead><tr><th>ID</th><th>Type</th><th>Amount</th><th>State</th><th>Detail</th><th>Actions</th></tr></thead><tbody>" + LAST.map(function (p) {
     var acts = actionsFor(p).map(function (a) { return '<button class="small" data-act="' + a[0] + '" data-id="' + esc(p.id) + '" data-amt="' + a[2] + '">' + a[1] + "</button> "; }).join("");
-    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + (p.authentication ? '<button class="small" data-lab="' + esc(p.id) + '">3DS log</button>' : "") + "</td></tr>";
+    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + (p.authentication ? '<button class="small" data-lab="' + esc(p.id) + '">3DS log</button> ' : "") + (canDispute(p) ? '<button class="small" data-dispute="' + esc(p.id) + '">Dispute</button>' : "") + "</td></tr>";
   }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No payments yet. Send one above.</p>';
 }
 $("#ledger").addEventListener("click", async function (e) {
+  var db = e.target.closest("button[data-dispute]");
+  if (db) { $("#dpPay").value = db.dataset.dispute; onDpPay(); $("#disputes").scrollIntoView({ behavior: "smooth" }); return; }
   var lb = e.target.closest("button[data-lab]");
   if (lb) { await loadLab(lb.dataset.lab, 0); $("#lab").scrollIntoView({ behavior: "smooth" }); return; }
   var b = e.target.closest("button[data-act]");
@@ -692,7 +721,7 @@ var refreshTimer = null;
 // Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
 function refreshAll() {
   if (!key || refreshTimer) return;
-  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); } }, 3000);
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); } }, 3000);
 }
 
 // ---------- 3-D Secure lab ----------
@@ -973,6 +1002,115 @@ async function loadSchemes() {
   } catch (e) {}
 }
 loadSchemes();
+
+// ---------- disputes ----------
+var DP_CATS = null, DPS = [], DPOPEN = null, dpTimer = null;
+var DP_LABEL = { needs_response: "Needs your response", under_review: "Under review", won: "Won", lost: "Lost" };
+var DP_CLASS = { needs_response: "pending", under_review: "pending", won: "success", lost: "failed" };
+var DP_FIELD = {
+  customer_ip: "Customer IP address", customer_email: "Customer email", device_fingerprint: "Device fingerprint", billing_address_match: "Billing address matches?", authentication_proof: "Authentication proof (3-D Secure details)",
+  customer_history: "Earlier orders by this customer", uncategorized_text: "Anything else", tracking_number: "Tracking number", shipping_carrier: "Carrier", delivery_date: "Delivery date", proof_of_delivery: "Proof of delivery",
+  customer_communication: "Messages with the customer", product_description: "Product or service description", refund_policy: "Refund policy shown at checkout", cancellation_policy: "Cancellation policy",
+  original_transaction_reference: "Reference of the original purchase", explanation: "Why these are two separate purchases", receipts: "Receipts"
+};
+function dpEligible() { return (LAST || []).filter(canDispute); }
+function buildDpPay() {
+  var el = $("#dpPay"); if (!el) return;
+  var keep = el.value, list = dpEligible();
+  el.innerHTML = list.length ? list.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.id) + " · " + fmt(p.amount) + " " + esc(p.currency) + (p.scheme ? " · " + esc(p.scheme) : "") + "</option>"; }).join("") : '<option value="">No payment can be disputed yet</option>';
+  if (keep && list.some(function (p) { return p.id === keep; })) el.value = keep;
+  $("#dpRaise").disabled = !list.length;
+  onDpPay();
+}
+function onDpPay() {
+  var p = (LAST || []).filter(function (x) { return x.id === $("#dpPay").value; })[0], sel = $("#dpReason"), prev = sel.value;
+  var cats = (DP_CATS && Object.keys(DP_CATS)) || ["fraud", "not_received", "not_as_described", "duplicate"];
+  var prof = p && p.scheme && SCHEMES ? SCHEMES.filter(function (x) { return x.id === p.scheme; })[0] : null;
+  sel.innerHTML = cats.map(function (c) {
+    var cb = prof && prof.chargeback_reasons.filter(function (r) { return r.category === c; })[0];
+    return '<option value="' + c + '">' + (cb ? esc(cb.code + " " + cb.reason) : esc((DP_CATS && DP_CATS[c] && DP_CATS[c].label) || c)) + "</option>";
+  }).join("");
+  if (prev) sel.value = prev;
+  $("#dpHint").textContent = p && p.authentication && p.authentication.liability_shift ? "This payment was authenticated with 3-D Secure. A fraud dispute on it is reversed by the bank without evidence. Try a different reason to see the normal flow." : "";
+}
+$("#dpPay").onchange = onDpPay;
+function dpDue(d) {
+  if (d.state !== "needs_response") return "";
+  var ms = Date.parse(d.due_by) - Date.now();
+  if (ms <= 0) return "deadline passed";
+  var s = Math.round(ms / 1000);
+  return s > 86400 ? Math.round(s / 86400) + " days left" : s > 3600 ? Math.round(s / 3600) + " hours left" : s > 90 ? Math.round(s / 60) + " minutes left" : s + " seconds left";
+}
+var DP_SIG = "";
+async function refreshDisputes(fromAll) {
+  if (!key) return;
+  var r = await api("GET", "/v1/disputes?limit=25");
+  if (r.status !== 200) return;
+  DPS = r.body.data;
+  var sig = DPS.map(function (d) { return d.id + d.state; }).join(), changed = sig !== DP_SIG; DP_SIG = sig;
+  $("#dpList").innerHTML = DPS.length ? "<table><thead><tr><th>ID</th><th>Payment</th><th>Reason</th><th>Amount</th><th>State</th><th>Deadline</th><th></th></tr></thead><tbody>" + DPS.map(function (d) {
+    return '<tr><td class="mono">' + esc(d.id) + '</td><td class="mono">' + esc(d.payment_id) + "</td><td>" + esc((d.reason.code ? d.reason.code + " " : "") + d.reason.description) + "</td><td>" + fmt(d.amount) + " " + esc(d.currency) + '</td><td><span class="badge ' + DP_CLASS[d.state] + '">' + esc(DP_LABEL[d.state]) + "</span></td><td>" + esc(dpDue(d)) + '</td><td><button class="small" data-dp="' + esc(d.id) + '">Open</button></td></tr>';
+  }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No disputes yet.</p>';
+  if (DPOPEN) { var cur = DPS.filter(function (d) { return d.id === DPOPEN; })[0]; if (cur) renderDispute(cur, true); }
+  if (changed && !fromAll) refreshLedger();
+}
+function renderDispute(d, keepForm) {
+  DPOPEN = d.id;
+  var el = $("#dpDetail");
+  var saved = {};
+  if (keepForm && d.state === "needs_response") Array.prototype.forEach.call(el.querySelectorAll("[data-ev]"), function (i) { saved[i.dataset.ev] = i.value; });
+  var req = d.evidence_requirements, h = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong class="mono">' + esc(d.id) + '</strong><span class="badge ' + DP_CLASS[d.state] + '">' + esc(DP_LABEL[d.state]) + "</span>" +
+    (d.liability_shifted ? '<span class="badge success">3DS liability shift</span>' : "") + '<span class="note" style="margin:0">' + esc(dpDue(d)) + "</span></div>" +
+    '<p style="margin:10px 0 4px"><strong>' + esc((d.reason.code ? d.reason.code + " " : "") + d.reason.description) + "</strong> · " + fmt(d.amount) + " " + esc(d.currency) + "</p>" +
+    '<p class="note" style="margin:0 0 8px">' + esc(d.reason.claim) + "</p>";
+  if (d.state === "needs_response") {
+    h += '<p class="note" style="margin:0 0 4px"><strong>2. You respond.</strong> ' + esc(req.tip) + " Evidence can be sent only once. Fields marked needed decide the outcome when the bank judges by evidence.</p>";
+    h += req.accepted.map(function (k) {
+      var need = req.required.indexOf(k) >= 0;
+      return '<label for="ev_' + k + '">' + esc(DP_FIELD[k] || k) + (need ? " <strong>(needed)</strong>" : "") + '</label><input id="ev_' + k + '" data-ev="' + k + '" maxlength="2000" value="' + esc(saved[k] || "") + '">';
+    }).join("");
+    h += '<div class="actions"><button class="primary" id="dpSend">Submit evidence</button><button id="dpAccept">Accept the dispute</button></div><p class="err" id="dpDetErr" role="alert"></p>';
+  } else if (d.evidence) {
+    h += '<details class="f"><summary>Your evidence</summary><div class="tablewrap"><table class="fields"><tbody>' + Object.keys(d.evidence).map(function (k) { return '<tr><td class="mono">' + esc(k) + "</td><td>" + esc(d.evidence[k]) + "</td></tr>"; }).join("") + "</tbody></table></div></details>";
+  }
+  if (d.resolution) h += '<p class="take" style="margin-top:10px"><strong>' + (d.state === "won" ? "Won." : "Lost.") + "</strong> " + esc(d.resolution.note) + "</p>";
+  h += '<ol class="tl">' + d.history.map(function (x) { return '<li class="tl-item"><div class="tl-head"><span class="msg mono">' + esc(x.event) + '</span><span class="ms mono">' + esc(x.at.slice(11, 19)) + "</span></div><p class=\"note\" style=\"margin:2px 0 0\">" + esc(x.note) + "</p></li>"; }).join("") + "</ol>";
+  h += '<p class="note" style="margin:0">Same from code: <span class="mono">GET /v1/disputes/' + esc(d.id) + "</span></p>";
+  el.innerHTML = h;
+  clearTimeout(dpTimer);
+  if (d.state === "under_review" || (d.state === "needs_response" && Date.parse(d.due_by) - Date.now() < 60e3)) dpTimer = setTimeout(refreshDisputes, 3000);
+}
+$("#dpRaise").onclick = async function () {
+  $("#dpErr").textContent = "";
+  var pid = $("#dpPay").value, sel = $("#dpReason").value, amt = $("#dpAmount").value;
+  var p = (LAST || []).filter(function (x) { return x.id === pid; })[0];
+  if (!p) { $("#dpErr").textContent = "Pick a payment first."; return; }
+  var body = { reason: sel, response_window_seconds: parseInt($("#dpWindow").value, 10), outcome: $("#dpOutcome").value };
+  if (amt) body.amount = parseFloat(amt);
+  $("#dpRaise").disabled = true;
+  try {
+    var r = await api("POST", "/v1/payments/" + pid + "/dispute", body);
+    if (r.status === 201) { $("#dpAmount").value = ""; renderDispute(r.body); await refreshDisputes(); }
+    else $("#dpErr").textContent = errMsg(r);
+  } finally { buildDpPay(); }
+};
+$("#dpList").addEventListener("click", function (e) {
+  var b = e.target.closest("button[data-dp]"); if (!b) return;
+  var d = DPS.filter(function (x) { return x.id === b.dataset.dp; })[0]; if (d) renderDispute(d);
+});
+$("#dpDetail").addEventListener("click", async function (e) {
+  var d = DPS.filter(function (x) { return x.id === DPOPEN; })[0]; if (!d) return;
+  var r;
+  if (e.target.id === "dpSend") {
+    var ev = {}; Array.prototype.forEach.call($("#dpDetail").querySelectorAll("[data-ev]"), function (i) { if (i.value.trim()) ev[i.dataset.ev] = i.value.trim(); });
+    r = await api("POST", "/v1/disputes/" + d.id + "/evidence", ev);
+  } else if (e.target.id === "dpAccept") r = await api("POST", "/v1/disputes/" + d.id + "/accept", {});
+  else return;
+  if (r.status === 200) { renderDispute(r.body); refreshDisputes(); }
+  else { var el = $("#dpDetErr"); if (el) el.textContent = errMsg(r); }
+});
+async function loadDpCats() { try { var r = await fetch("/v1/schemes"); if (r.ok) { DP_CATS = (await r.json()).dispute_categories; onDpPay(); } } catch (e) {} }
+loadDpCats();
 $("#method").onchange = onMethod;
 onMethod();
 Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });

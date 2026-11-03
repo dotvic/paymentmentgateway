@@ -197,6 +197,20 @@ function emit(acc, p) {
   deliver(acc, { id: "evt_" + rnd(8), type: ok ? "payment.succeeded" : "payment.failed", created_at: new Date().toISOString(), data: pub(p) }, { hook: p._hook });
 }
 
+// ---------- disputes (chargebacks), see disputes.js ----------
+const DISPUTE_REVIEW_MS = process.env.DISPUTE_REVIEW_DELAY_MS ? +process.env.DISPUTE_REVIEW_DELAY_MS : 5000;
+const DSP = Object.assign(require("./disputes")({ bad, rnd, r2, reviewMs: DISPUTE_REVIEW_MS }), { CATEGORIES: require("./disputes").CATEGORIES });
+function emitDispute(acc, d, type) {
+  deliver(acc, { id: "evt_" + rnd(8), type, created_at: new Date().toISOString(), data: DSP.publicDispute(d) });
+}
+// Decides disputes that are due (finished reviews, passed deadlines) and sends their webhook events.
+function sweepDisputes(acc) {
+  const evs = DSP.sweep(acc);
+  if (!evs.length) return;
+  save(acc);
+  for (const e of evs) emitDispute(acc, e.d, e.type);
+}
+
 // ---------- gateway simulation ----------
 const pub = (p) => Object.fromEntries(Object.entries(p).filter(([k]) => !k.startsWith("_")));
 
@@ -209,12 +223,14 @@ function checkParent(p, type, amount) {
   }
   if (type === "refund") {
     if (!PAY.includes(p.transaction_type)) return ["SBX-4224", "refund needs a purchase, debit or capture as parent"];
-    if (amount > r2(p.amount - p.refunded_amount)) return ["SBX-4225", `Amount exceeds refundable balance of ${r2(p.amount - p.refunded_amount).toFixed(2)}`];
+    const left = r2(p.amount - p.refunded_amount - (p.disputed_amount || 0));
+    if (amount > left) return ["SBX-4225", `Amount exceeds refundable balance of ${left.toFixed(2)}` + (p.disputed_amount ? " (money held back by a dispute cannot be refunded)" : "")];
   }
   if (type === "void") {
     if (["refund", "void"].includes(p.transaction_type)) return ["SBX-4226", "Refunds and voids cannot be voided"];
     if (p.transaction_type === "authorization" && p.captured_amount > 0) return ["SBX-4227", "Authorization already captured; refund the capture instead"];
     if (p.transaction_type !== "authorization" && p.refunded_amount > 0) return ["SBX-4228", "Transaction already refunded; it can no longer be voided"];
+    if (p.dispute_id) return ["SBX-4233", "Transaction is disputed; it can no longer be voided"];
   }
   return null;
 }
@@ -573,7 +589,7 @@ async function route(req, res) {
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
   if (m === "GET" && ASSETS[path]) { res.writeHead(200, { "content-type": ASSETS[path].type, "content-length": ASSETS[path].body.length, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" }); return res.end(ASSETS[path].body); }
-  if (m === "GET" && path === "/v1/schemes") return send(res, 200, { schemes: SCH.publicProfiles(), note: "Simulated behaviour only. Zanboxx never connects to the real card networks. Codes are simplified for teaching." });
+  if (m === "GET" && path === "/v1/schemes") return send(res, 200, { schemes: SCH.publicProfiles(), dispute_categories: DSP.CATEGORIES, note: "Simulated behaviour only. Zanboxx never connects to the real card networks. Codes are simplified for teaching." });
   if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
 
@@ -667,11 +683,37 @@ async function route(req, res) {
     if (out.latency_ms) await sleep(out.latency_ms);
     return send(res, out.status, out.body);
   }
+  let mt;
+  if (m === "POST" && (mt = path.match(/^\/v1\/payments\/(tx_[a-f0-9]+)\/dispute$/))) {
+    const p = acc.payments.find((x) => x.id === mt[1]), b = await readBody(req);
+    if (!p) throw bad(404, "not_found", "Transaction not found");
+    const d = DSP.create(acc, p, b);
+    save(acc); emitDispute(acc, d, "dispute.created");
+    return send(res, 201, DSP.publicDispute(d));
+  }
+  if (path === "/v1/disputes" || path.startsWith("/v1/disputes/")) {
+    sweepDisputes(acc);
+    const ds = acc.disputes || [], find = (id) => { const d = ds.find((x) => x.id === id); if (!d) throw bad(404, "not_found", "Dispute not found"); return d; };
+    const payOf = (d) => acc.payments.find((x) => x.id === d.payment_id);
+    if (m === "GET" && path === "/v1/disputes") {
+      const limit = Math.min(Math.max(+url.searchParams.get("limit") || 25, 1), 100), state = url.searchParams.get("state");
+      return send(res, 200, { data: ds.filter((d) => !state || d.state === state).slice(0, limit).map(DSP.publicDispute) });
+    }
+    if ((mt = path.match(/^\/v1\/disputes\/(dp_[a-f0-9]+)$/)) && m === "GET") return send(res, 200, DSP.publicDispute(find(mt[1])));
+    if ((mt = path.match(/^\/v1\/disputes\/(dp_[a-f0-9]+)\/(evidence|accept)$/)) && m === "POST") {
+      const d = find(mt[1]);
+      if (mt[2] === "evidence") DSP.submitEvidence(acc, payOf(d), d, await readBody(req));
+      else DSP.accept(acc, payOf(d), d);
+      save(acc);
+      emitDispute(acc, d, mt[2] === "evidence" ? "dispute.updated" : "dispute.lost");
+      return send(res, 200, DSP.publicDispute(d));
+    }
+    throw bad(404, "not_found", "Unknown endpoint");
+  }
   if (m === "GET" && path === "/v1/payments") {
     const limit = Math.min(Math.max(+url.searchParams.get("limit") || 25, 1), 100), state = url.searchParams.get("state");
     return send(res, 200, { data: acc.payments.filter((p) => !state || p.transaction_state === state).slice(0, limit).map(pub) });
   }
-  let mt;
   if (m === "GET" && (mt = path.match(/^\/v1\/payments\/(tx_[a-f0-9]+)$/))) {
     const p = acc.payments.find((x) => x.id === mt[1]);
     if (!p) throw bad(404, "not_found", "Transaction not found");
@@ -794,7 +836,7 @@ async function route(req, res) {
     purgeAccount(acc.id);
     return send(res, 200, { deleted: true });
   }
-  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; save(acc); return send(res, 200, { cleared: true }); }
+  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; acc.disputes = []; save(acc); return send(res, 200, { cleared: true }); }
   throw bad(404, "not_found", "Unknown endpoint");
 }
 
@@ -809,6 +851,7 @@ if (require.main === module) {
   purgeInactive();
   setInterval(purgeInactive, 24 * 3600e3).unref();
   backups.start();
+  setInterval(() => { for (const a of Object.values(DB.accounts)) if (DSP.hasOpen(a)) { try { sweepDisputes(a); } catch (e) { console.error("dispute sweep:", e.message); } } }, 2000).unref();
   console.log(`Database: ${DB_FILE} (${Object.keys(DB.accounts).length} accounts)`);
   // On shutdown (deploys, restarts) write pending changes first, so nothing from the last moments is lost.
   let closing = false;

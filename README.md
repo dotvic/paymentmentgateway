@@ -59,6 +59,10 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
 | `GET /v1/webhook/deliveries` | Delivery attempts and retries |
+| `POST /v1/payments/{id}/dispute` | Play the cardholder's bank and raise a dispute on a successful card purchase or capture. Optional `reason_code` (the payment's scheme code, e.g. `13.1`, `4837`, `F29`) or `reason` (`fraud`, `not_received`, `not_as_described`, `duplicate`), `amount`, `response_window_seconds` (1 to 604800), `outcome` (`auto`, `win`, `lose`) |
+| `GET /v1/disputes`, `GET /v1/disputes/{id}` | List (`?state=&limit=`) or fetch, with evidence requirements, timeline and resolution |
+| `POST /v1/disputes/{id}/evidence` | Submit evidence once (`{"customer_ip":"...","customer_email":"..."}`). Accepted fields depend on the reason |
+| `POST /v1/disputes/{id}/accept` | Accept the dispute (you lose it) |
 | `GET /v1/schemes` | Public. Visa, Mastercard and American Express profiles: number formats, security codes, 3DS branding and ECI, response codes, chargeback reasons, test cards |
 | `GET /v1/usage` | Plan and monthly usage |
 | `DELETE /v1/payments` | Wipe sandbox data |
@@ -100,6 +104,23 @@ What differs per scheme (all simplified teaching values; Zanboxx never contacts 
 - **3-D Secure:** Visa Secure, Mastercard Identity Check, American Express SafeKey. ECI is 05/06/07 for Visa and Amex, 02/01/00 for Mastercard. The authentication value is called CAVV, AAV or AEVV.
 - **Decline codes:** payments and webhook events carry `scheme` and, on failures, `scheme_response` with the scheme's own code (Visa and Mastercard 05, 51, 54; Amex 100, 116, 101) and a retry hint.
 - **Failure script:** `"when": {"scheme": "amex"}` targets one scheme.
+
+## Disputes (chargebacks)
+
+Raising a dispute withdraws the amount from the payment and starts a deadline (7 days by default; shorten it with `response_window_seconds` to test the expiry path).
+
+```
+needs_response --submit evidence--> under_review --> won | lost
+needs_response --accept-----------> lost
+needs_response --deadline passes--> lost
+```
+
+- **Reason and evidence:** each scheme's codes map to four categories. Fraud wants `customer_ip` and `customer_email`; not received wants `tracking_number` and `proof_of_delivery`; not as described wants `product_description` and `customer_communication`; duplicate wants `original_transaction_reference` and `explanation`. Other fields are accepted too (see `evidence_requirements` on the dispute).
+- **Outcome:** with `outcome: auto` the bank rules for you if every needed field is present and against you otherwise, and the loss says which fields were missing. `win` and `lose` force the result.
+- **3-D Secure:** a fraud dispute on a payment whose authentication shifted liability is reversed without evidence. Other reasons, and payments without a liability shift, follow the normal flow.
+- **Money:** while a dispute is open or lost, its amount counts against the refundable balance, and the payment can no longer be voided. If you win, the amount is released.
+- **Webhooks:** `dispute.created`, `dispute.updated` (evidence submitted), `dispute.won`, `dispute.lost`. The event `data` is the dispute. Review takes about 5 seconds (`DISPUTE_REVIEW_DELAY_MS`).
+- One dispute per payment, 50 per account. Real schemes also have retrieval requests, pre-arbitration and arbitration, which are not simulated.
 
 ## Webhooks
 

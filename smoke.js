@@ -6,7 +6,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WH_SECRET = "whsec_test_secret";
 const srv = spawn("node", ["server.js"], {
   env: {
-    ...process.env, PORT, DATA_FILE: `/tmp/dryrun-test-${Date.now()}.json`, ALLOW_PRIVATE_WEBHOOKS: "1", RETRY_MS: "0,200", SETTLE_DELAY_MS: "300",
+    ...process.env, PORT, DATA_FILE: `/tmp/dryrun-test-${Date.now()}.json`, ALLOW_PRIVATE_WEBHOOKS: "1", RETRY_MS: "0,200", SETTLE_DELAY_MS: "300", DISPUTE_REVIEW_DELAY_MS: "300",
     SIGNUPS_PER_HOUR: "50", MAIL_IP_PER_HOUR: "100", EMAIL_API_KEY: "re_test", EMAIL_FROM: "Zanboxx <login@example.test>", EMAIL_API_BASE: `http://127.0.0.1:${MAIL_PORT}`,
     STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET,
     STRIPE_API_BASE: `http://127.0.0.1:${STRIPE_PORT}`, PUBLIC_URL: "https://example.test", PRO_PRICE_LABEL: "EUR 19 per month",
@@ -602,6 +602,88 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const dead = await spawnSync("node", ["server.js"], { env: { ...process.env, ...env3 }, timeout: 10000 });
       assert.notEqual(dead.status, 0, "server refuses to start on a damaged database");
       mockS3.close(); fs.rmSync(dir, { recursive: true, force: true });
+    }
+
+    // ---- disputes (chargebacks) ----
+    {
+      const da = await api("POST", "/v1/accounts"); key = da.body.api_key;
+      await api("POST", "/v1/account/email", { email: "disputes@example.test" }); await sleep(150); assert.ok((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).body.trial_ends); // trial = Pro rate limit
+      const wd = await api("PUT", "/v1/webhook", { url: `http://127.0.0.1:${HOOK}/hook` }); secret = wd.body.secret; hooks.length = 0;
+      const waitD = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { const r = await fn(); if (r) return r; await sleep(60); } return null; };
+      const evOf = (type, id) => hooks.find((h) => h.body.type === type && h.body.data.id === id);
+      const ok = async (n, extra) => (await api("POST", "/v1/payments", card(n, { amount: 100, ...extra }))).body;
+      const dispute = (txid, body) => api("POST", `/v1/payments/${txid}/dispute`, body || {});
+      const state = async (id) => (await api("GET", `/v1/disputes/${id}`)).body;
+
+      // creation: scheme reason codes, money held back, refund guard
+      const v = await ok("4111111111111111");
+      const d1 = await dispute(v.id, { reason_code: "13.1", amount: 60 }); assert.equal(d1.status, 201, JSON.stringify(d1.body));
+      assert.equal(d1.body.state, "needs_response"); assert.equal(d1.body.scheme, "visa"); assert.equal(d1.body.reason.code, "13.1"); assert.equal(d1.body.reason.category, "not_received");
+      assert.deepEqual(d1.body.evidence_requirements.required, ["tracking_number", "proof_of_delivery"]); assert.ok(Date.parse(d1.body.due_by) > Date.now() + 6 * 864e5);
+      assert.equal(d1.body.history[0].event, "created"); assert.equal(d1.body.review_at, undefined);
+      const pv = (await api("GET", `/v1/payments/${v.id}`)).body; assert.equal(pv.dispute_id, d1.body.id); assert.equal(pv.disputed_amount, 60); assert.equal(pv.dispute_state, "needs_response");
+      assert.equal((await dispute(v.id)).status, 409, "one dispute per payment");
+      const rf = (amt) => api("POST", "/v1/payments", { request_id: "dr" + Math.random(), method: "card", transaction_type: "refund", amount: amt, parent_transaction_id: v.id });
+      assert.equal((await rf(50)).status, 422, "only 40 is refundable while 60 is held back");
+      assert.equal((await rf(40)).status, 201);
+      assert.equal((await api("POST", "/v1/payments", { request_id: "dv1", method: "card", transaction_type: "void", parent_transaction_id: v.id })).status, 422);
+      await waitD(() => evOf("dispute.created", d1.body.id)); assert.ok(evOf("dispute.created", d1.body.id).ok, "signed dispute.created webhook");
+      // validation
+      for (const [body, why] of [[{ reason_code: "4837" }, "wrong scheme code"], [{ reason: "boring" }, "unknown category"], [{ amount: 0 }, "zero"], [{ outcome: "maybe" }, "outcome"], [{ response_window_seconds: 0 }, "window"], [{ response_window_seconds: 9e9 }, "window max"]]) {
+        const t = await ok("4111111111111111"); const r = await dispute(t.id, body); assert.equal(r.status, 400, why);
+      }
+      const big = await ok("4111111111111111"); assert.equal((await dispute(big.id, { amount: 100.01 })).status, 422);
+      const failed = await ok("4000000000000002"); assert.equal((await dispute(failed.id)).status, 422, "failed payments cannot be disputed");
+      const auth = await ok("4111111111111111", { transaction_type: "authorization" }); assert.equal((await dispute(auth.id)).status, 422, "authorizations cannot be disputed");
+      const pp = (await api("POST", "/v1/payments", { request_id: "ppd", method: "paypal", transaction_type: "debit", amount: 5, currency: "EUR" })).body; assert.equal((await dispute(pp.id)).status, 422);
+      assert.equal((await dispute("tx_ffffffff")).status, 404);
+      // evidence: validation, then a win with complete evidence
+      const e1 = (b) => api("POST", `/v1/disputes/${d1.body.id}/evidence`, b);
+      assert.equal((await e1({ colour: "red" })).status, 400); assert.equal((await e1({})).status, 400); assert.equal((await e1({ tracking_number: "x".repeat(2001) })).status, 400);
+      const sub = await e1({ tracking_number: "1Z999AA10123456784", proof_of_delivery: "Signed by J. Doe, 4 Nov" });
+      assert.equal(sub.status, 200); assert.equal(sub.body.state, "under_review"); assert.equal(sub.body.evidence.tracking_number, "1Z999AA10123456784");
+      assert.equal((await e1({ tracking_number: "again" })).status, 409, "evidence only once"); assert.equal((await api("POST", `/v1/disputes/${d1.body.id}/accept`)).status, 409);
+      await waitD(async () => (await state(d1.body.id)).state === "won");
+      const w = await state(d1.body.id); assert.equal(w.resolution.cause, "evidence_accepted"); assert.equal(w.history.map((h) => h.event).join(), "created,evidence_submitted,won");
+      assert.equal((await api("GET", `/v1/payments/${v.id}`)).body.disputed_amount, 0, "won: money returned");
+      await waitD(() => evOf("dispute.updated", d1.body.id) && evOf("dispute.won", d1.body.id));
+      assert.equal(evOf("dispute.won", d1.body.id).body.data.state, "won");
+      // weak evidence loses and says why
+      const m = await ok("5555555555554444"); const d2 = (await dispute(m.id, { reason: "fraud" })).body; assert.equal(d2.reason.code, "4837"); assert.equal(d2.scheme, "mastercard");
+      await api("POST", `/v1/disputes/${d2.id}/evidence`, { customer_ip: "203.0.113.9" });
+      await waitD(async () => (await state(d2.id)).state === "lost"); const l2 = await state(d2.id); assert.equal(l2.resolution.cause, "evidence_insufficient"); assert.ok(l2.resolution.note.includes("customer_email"));
+      assert.equal((await api("GET", `/v1/payments/${m.id}`)).body.disputed_amount, 100, "lost: money stays withdrawn");
+      await waitD(() => evOf("dispute.lost", d2.id));
+      // accept
+      const a = await ok("378282246310005"); const d3 = (await dispute(a.id, { reason_code: "P08" })).body; assert.equal(d3.reason.category, "duplicate");
+      const acc3 = await api("POST", `/v1/disputes/${d3.id}/accept`); assert.equal(acc3.status, 200); assert.equal(acc3.body.state, "lost"); assert.equal(acc3.body.resolution.cause, "accepted");
+      assert.equal((await api("POST", `/v1/disputes/${d3.id}/accept`)).status, 409);
+      await waitD(() => evOf("dispute.lost", d3.id));
+      // deadline passes
+      const dl = await ok("4111111111111111"); const d4 = (await dispute(dl.id, { response_window_seconds: 1 })).body;
+      await sleep(1300); const l4 = await state(d4.id); assert.equal(l4.state, "lost"); assert.equal(l4.resolution.cause, "no_response");
+      assert.equal((await api("POST", `/v1/disputes/${d4.id}/evidence`, { customer_ip: "1.1.1.1" })).status, 409, "too late");
+      // forced outcomes
+      const f1 = await ok("4111111111111111"); const d5 = (await dispute(f1.id, { outcome: "win" })).body;
+      await api("POST", `/v1/disputes/${d5.id}/evidence`, { customer_ip: "x" });
+      await waitD(async () => (await state(d5.id)).state === "won"); assert.equal((await state(d5.id)).resolution.cause, "simulated_win");
+      const f2 = await ok("4111111111111111"); const d6 = (await dispute(f2.id, { outcome: "lose" })).body;
+      await api("POST", `/v1/disputes/${d6.id}/evidence`, { customer_ip: "1.1.1.1", customer_email: "a@b.test" });
+      await waitD(async () => (await state(d6.id)).state === "lost"); assert.equal((await state(d6.id)).resolution.cause, "simulated_loss");
+      // 3-D Secure liability shift: a fraud dispute on an authenticated payment is reversed without evidence
+      const sh = await ok("4000000000003000"); const d7 = (await dispute(sh.id, { reason: "fraud" })).body;
+      assert.equal(d7.liability_shifted, true); assert.equal(d7.state, "under_review");
+      assert.equal((await api("POST", `/v1/disputes/${d7.id}/evidence`, { customer_ip: "1.1.1.1" })).status, 409);
+      await waitD(async () => (await state(d7.id)).state === "won"); assert.equal((await state(d7.id)).resolution.cause, "liability_shift");
+      const ns = await ok("4000000000003261"); assert.equal((await dispute(ns.id, { reason: "fraud" })).body.liability_shifted, false, "no shift when 3DS was unavailable");
+      const sn = await ok("4000000000003000"); assert.equal((await dispute(sn.id, { reason: "not_received" })).body.liability_shifted, false, "3DS only covers fraud");
+      // lists and housekeeping
+      const all = (await api("GET", "/v1/disputes")).body.data; assert.ok(all.length >= 9);
+      assert.ok((await api("GET", "/v1/disputes?state=won")).body.data.every((x) => x.state === "won"));
+      assert.equal((await api("GET", "/v1/disputes/dp_ffffffff")).status, 404);
+      assert.equal((await api("POST", "/v1/disputes/dp_ffffffff/evidence", { customer_ip: "1" })).status, 404);
+      const cats = await (await fetch(BASE + "/v1/schemes")).json(); assert.deepEqual(Object.keys(cats.dispute_categories), ["fraud", "not_received", "not_as_described", "duplicate"]);
+      assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/disputes")).body.data.length, 0);
     }
 
     console.log("All checks passed");
