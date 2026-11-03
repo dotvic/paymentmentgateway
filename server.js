@@ -2,6 +2,7 @@
 // DryRun: hosted payment-gateway sandbox API. Zero dependencies, Node 18+.
 const http = require("http"), crypto = require("crypto"), fs = require("fs"), dns = require("dns").promises, net = require("net");
 const TDS = require("./tds");
+const SCH = require("./schemes");
 
 const PORT = +process.env.PORT || 8080;
 const DATA_FILE = process.env.DATA_FILE || "./data.json";
@@ -88,12 +89,14 @@ const CARDS = {
 };
 // 3-D Secure test cards: outcome "3ds" is the challenge flow, "3ds_Y" / "3ds_N" / "3ds_A" / "3ds_U" / "3ds_R" end without a challenge.
 for (const [num, status] of Object.entries(TDS.CARDS)) CARDS[num] = status === "C" ? "3ds" : "3ds_" + status;
+// Visa, Mastercard and American Express test cards (see schemes.js)
+for (const c of SCH.TEST_CARDS) CARDS[c.number] = c.outcome;
 const MAX_3DS_LOGS = 20;
 function trimLogs(acc) {
   let kept = 0;
   for (const p of acc.payments) if (p._tds && ++kept > MAX_3DS_LOGS) delete p._tds;
 }
-const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-4051", "Insufficient funds"], expired: ["SBX-4054", "Card expired"] };
+const FAILS = { decline: ["SBX-4002", "Card declined by issuer"], nsf: ["SBX-4051", "Insufficient funds"], expired: ["SBX-4054", "Card expired"], invalid_card: ["SBX-4014", "Invalid card number"] };
 
 // ---------- storage (SQLite, see store.js) ----------
 const { Store } = require("./store");
@@ -251,7 +254,7 @@ function parseScript(b) {
     only(r, ["name", "when", "then"], at);
     const w = r.when || {}, t = r.then || {};
     if (typeof w !== "object" || typeof t !== "object" || Array.isArray(w) || Array.isArray(t)) throw bad(400, "invalid_script", `${at}: when and then must be objects`);
-    only(w, ["nth", "every", "amount_gte", "amount_lte", "currency", "method", "transaction_type", "probability"], at + " when");
+    only(w, ["nth", "every", "amount_gte", "amount_lte", "currency", "method", "transaction_type", "scheme", "probability"], at + " when");
     only(t, ["outcome", "latency_ms", "http_error", "webhook"], at + " then");
     const when = {};
     if ("nth" in w) when.nth = num(w.nth, 1, 1e9, `${at}: nth`, true);
@@ -261,6 +264,7 @@ function parseScript(b) {
     if ("probability" in w) when.probability = num(w.probability, 0, 1, `${at}: probability`);
     if ("currency" in w) { if (!CURRENCIES.includes(w.currency)) throw bad(400, "invalid_script", `${at}: currency must be one of ${CURRENCIES.join(", ")}`); when.currency = w.currency; }
     if ("method" in w) { if (!TYPES[w.method]) throw bad(400, "invalid_script", `${at}: method must be one of ${Object.keys(TYPES).join(", ")}`); when.method = w.method; }
+    if ("scheme" in w) { if (!SCH.SCHEMES[w.scheme]) throw bad(400, "invalid_script", `${at}: scheme must be one of ${Object.keys(SCH.SCHEMES).join(", ")}`); when.scheme = w.scheme; }
     if ("transaction_type" in w) { if (!Object.values(TYPES).some((l) => l.includes(w.transaction_type))) throw bad(400, "invalid_script", `${at}: unknown transaction_type`); when.transaction_type = w.transaction_type; }
     const then = {};
     if ("outcome" in t) { if (!SCRIPT_OUTCOMES.includes(t.outcome)) throw bad(400, "invalid_script", `${at}: outcome must be one of ${SCRIPT_OUTCOMES.join(", ")}`); then.outcome = t.outcome; }
@@ -296,12 +300,18 @@ function matchScript(acc, ctx) {
     if (w.currency && ctx.currency !== w.currency) continue;
     if (w.method && ctx.method !== w.method) continue;
     if (w.transaction_type && ctx.type !== w.transaction_type) continue;
+    if (w.scheme && ctx.scheme !== w.scheme) continue;
     if (w.probability !== undefined && Math.random() >= w.probability) continue;
     return { n: i + 1, rule: sc.rules[i] };
   }
   return null;
 }
 
+// Adds the card scheme's own response code next to our SBX code, for example Visa 05 or Amex 100.
+function schemeResponse(p, outcome) {
+  const r = SCH.responseFor(p.scheme, outcome);
+  if (r) p.scheme_response = { scheme: p.scheme, code: r.code, message: r.message, retry_advice: r.retry };
+}
 function createPayment(acc, b) {
   const meta = { latency_ms: 0 };
   const out = createPaymentInner(acc, b, meta);
@@ -333,12 +343,19 @@ function createPaymentInner(acc, b, meta) {
   if (parent) { const e = checkParent(parent, type, amount); if (e) throw bad(422, e[0], e[1]); }
 
   const card = String(b.card_number || "").replace(/\s/g, "");
-  if (b.method === "card" && !parent && scenario === "auto" && !/^\d{16}$/.test(card)) throw bad(400, "invalid_request", "card_number must have 16 digits when scenario is auto");
+  let scheme = null;
+  if (b.method === "card" && !parent) {
+    if (scenario === "auto" || card) {
+      const chk = SCH.check(card, b.card_cvv);
+      if (chk.error && (scenario === "auto" || card)) throw bad(400, "invalid_request", chk.error + (scenario === "auto" ? "" : " (or leave card_number out when you set a scenario)"));
+      scheme = chk.scheme;
+    }
+  }
 
   let outcome = scenario;
-  if (scenario === "auto") outcome = parent || b.method !== "card" ? "approve" : CARDS[card] || "decline";
+  if (scenario === "auto") outcome = parent || b.method !== "card" ? "approve" : CARDS[card] || (scheme && !SCH.luhn(card) ? "invalid_card" : "decline");
 
-  const hit = matchScript(acc, { amount, currency, method: b.method, type });
+  const hit = matchScript(acc, { amount, currency, method: b.method, type, scheme });
   let latency_ms = 0, hook = null;
   if (hit) {
     const t = hit.rule.then;
@@ -353,7 +370,8 @@ function createPaymentInner(acc, b, meta) {
     amount, currency, parent_transaction_id: parent ? parent.id : null, status: { code: "SBX-2010", message: "Processing" },
     created_at: new Date().toISOString(),
   };
-  if (b.method === "card" && !parent && card) p.card_last4 = card.slice(-4);
+  if (b.method === "card" && !parent && card) { p.card_last4 = card.slice(-4); if (scheme) p.scheme = scheme; }
+  else if (parent && parent.scheme) p.scheme = parent.scheme;
   if (hit) p.script_rule = hit.n;
   if (hook) p._hook = hook;
   if (type === "authorization") p.captured_amount = 0;
@@ -370,7 +388,7 @@ function createPaymentInner(acc, b, meta) {
   }
   if (outcome === "3ds" || outcome.startsWith("3ds_")) {
     const status = outcome === "3ds" ? "C" : outcome.slice(4);
-    const tr = TDS.begin({ amount, currency, last4: card.slice(-4) || "0000" }, status);
+    const tr = TDS.begin({ amount, currency, last4: card.slice(-4) || "0000", scheme }, status);
     p._tds = tr; p.authentication = TDS.summary(tr);
     trimLogs(acc);
     if (status === "C") {
@@ -378,10 +396,12 @@ function createPaymentInner(acc, b, meta) {
       save(acc);
       return { status: 202, body: { ...pub(p), three_ds: { required: true, confirm_url: `/v1/payments/${p.id}/3ds`, log_url: `/v1/payments/${p.id}/3ds-log` } } };
     }
+    if (!tr.payment.ok) schemeResponse(p, "decline");
     settle(acc, p, tr.payment.ok, tr.payment.code, tr.payment.message);
     return { status: 201, body: pub(p) };
   }
   const f = FAILS[outcome] || FAILS.decline;
+  schemeResponse(p, FAILS[outcome] ? outcome : "decline");
   settle(acc, p, false, f[0], f[1]);
   return { status: 201, body: pub(p) };
 }
@@ -553,6 +573,7 @@ async function route(req, res) {
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
   if (m === "GET" && ASSETS[path]) { res.writeHead(200, { "content-type": ASSETS[path].type, "content-length": ASSETS[path].body.length, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" }); return res.end(ASSETS[path].body); }
+  if (m === "GET" && path === "/v1/schemes") return send(res, 200, { schemes: SCH.publicProfiles(), note: "Simulated behaviour only. Zanboxx never connects to the real card networks. Codes are simplified for teaching." });
   if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
 

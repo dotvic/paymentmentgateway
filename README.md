@@ -52,13 +52,14 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
-| `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
+| `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
 | `GET /v1/webhook/deliveries/{id}` | One delivery with the stored event body and every attempt (status, time taken, response snippet) |
 | `POST /v1/webhook/deliveries/{id}/replay` | Send a stored event again (same event id, fresh signature, header `X-DryRun-Replay: true`). Pro or trial |
 | `POST /v1/payments/{id}/3ds` | Complete a challenge with `{"result":"approve"\|"fail"}` |
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
 | `GET /v1/webhook/deliveries` | Delivery attempts and retries |
+| `GET /v1/schemes` | Public. Visa, Mastercard and American Express profiles: number formats, security codes, 3DS branding and ECI, response codes, chargeback reasons, test cards |
 | `GET /v1/usage` | Plan and monthly usage |
 | `DELETE /v1/payments` | Wipe sandbox data |
 
@@ -81,6 +82,24 @@ Methods: `card`, `paypal`, `ideal`, `sepa`. Currencies: EUR, USD, GBP. Optional 
 | 4000 0000 0000 0408 | Gateway timeout (HTTP 504, resolves by webhook after about 3 s) |
 
 Non-card methods and follow-up transactions approve automatically unless you set `scenario`.
+
+### Card schemes
+
+The same outcomes exist for three schemes. Visa cards use the numbers above; the full list per scheme is at `GET /v1/schemes` and under "Test cards" on the site.
+
+| Outcome | Visa | Mastercard | American Express |
+|---|---|---|---|
+| Approved | 4111 1111 1111 1111 | 5555 5555 5555 4444 | 3782 822463 10005 |
+| Declined | 4000 0000 0000 0002 | 5200 0000 0000 0007 | 3700 0000 0000 002 |
+| Insufficient funds | 4000 0000 0000 9995 | 5200 0000 0009 9959 | 3700 0000 0009 9954 |
+| 3DS challenge | 4000 0000 0000 3220 | 5200 0000 0003 2208 | 3700 0000 0003 2203 |
+
+What differs per scheme (all simplified teaching values; Zanboxx never contacts the real networks):
+
+- **Number and security code:** Amex has 15 digits and a 4-digit CID; Visa and Mastercard 16 digits and a 3-digit CVV2/CVC2. Send an optional `card_cvv` to have its length checked. It is never stored. Numbers that fail the Luhn check get `SBX-4014` (Visa and Mastercard code 14, Amex 111).
+- **3-D Secure:** Visa Secure, Mastercard Identity Check, American Express SafeKey. ECI is 05/06/07 for Visa and Amex, 02/01/00 for Mastercard. The authentication value is called CAVV, AAV or AEVV.
+- **Decline codes:** payments and webhook events carry `scheme` and, on failures, `scheme_response` with the scheme's own code (Visa and Mastercard 05, 51, 54; Amex 100, 116, 101) and a retry hint.
+- **Failure script:** `"when": {"scheme": "amex"}` targets one scheme.
 
 ## Webhooks
 

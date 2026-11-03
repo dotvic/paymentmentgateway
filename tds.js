@@ -3,6 +3,7 @@
 // but the messages are simplified and every value (IDs, cryptograms, risk signals) is made up.
 
 const crypto = require("crypto");
+const SCH = require("./schemes");
 
 const VERSION = "2.2.0";
 const CURRENCY = { EUR: "978", USD: "840", GBP: "826" };
@@ -14,7 +15,7 @@ const LABEL = {
   C: "Challenge required",
   R: "Authentication rejected by the issuer",
 };
-const ECI = { Y: "05", A: "06", N: "07", U: "07", R: "07" }; // Visa values; Mastercard uses 02 / 01 / 00
+const eci = (tr, status) => SCH.eciFor(tr.ctx.scheme, status); // Visa and Amex: 05 / 06 / 07, Mastercard: 02 / 01 / 00
 const REASON = { N: "01", U: "22", A: "13", R: "11" };
 const REASON_TEXT = { "01": "Card authentication failed", "11": "Suspected fraud", "13": "Cardholder not enrolled in service", "22": "ACS technical issue" };
 
@@ -38,8 +39,8 @@ const SHARED_NOTES = {
   acsTransID: "ID created by the issuer's ACS for this authentication.",
   dsTransID: "ID created by the Directory Server (the card network's switch). Your acquirer may need it when authorising.",
   transStatus: "The outcome. Y = authenticated, N = denied, U = could not be performed, A = attempt recorded, C = challenge required, R = rejected.",
-  authenticationValue: "Cryptographic proof of the authentication (CAVV for Visa, AAV for Mastercard). Your acquirer passes it on when authorising. Fake here.",
-  eci: "Electronic Commerce Indicator. Tells the networks how the cardholder was authenticated. Visa: 05 authenticated, 06 attempted, 07 not authenticated. Mastercard: 02, 01, 00.",
+  authenticationValue: "Cryptographic proof of the authentication (CAVV for Visa, AAV or UCAF for Mastercard, AEVV for American Express). Your acquirer passes it on when authorising. Fake here.",
+  eci: "Electronic Commerce Indicator. Tells the networks how the cardholder was authenticated. Visa and American Express: 05 authenticated, 06 attempted, 07 not authenticated. Mastercard: 02, 01, 00.",
 };
 
 function addStep(tr, s, wait) {
@@ -82,7 +83,7 @@ function areqAres(tr, status) {
   const ids = tr.ids;
   addStep(tr, { phase: "setup", kind: "info", from: ME, to: SERVER, name: "Start", title: "Merchant asks the 3DS Server to authenticate the cardholder",
     explain: "Before the payment is authorised, your server (or checkout page) asks a 3DS Server to check that the person paying really is the cardholder. You hand over the amount, currency, card and details about the customer's device.",
-    payload: { amount: tr.ctx.amount, currency: tr.ctx.currency, card: "************" + tr.ctx.last4, channel: "browser" }, notes: { channel: "Browser checkout. Mobile apps use an SDK instead." } }, 0);
+    payload: { amount: tr.ctx.amount, currency: tr.ctx.currency, card: "************" + tr.ctx.last4, ...(tr.ctx.scheme ? { cardScheme: SCH.SCHEMES[tr.ctx.scheme].name, schemeProgramme: SCH.tdsFor(tr.ctx.scheme).brand } : {}), channel: "browser" }, notes: { channel: "Browser checkout. Mobile apps use an SDK instead.", cardScheme: "The card network that issued the card, found from the first digits of the number.", schemeProgramme: "The network's name for its 3-D Secure programme. The protocol is the same EMV 3DS; the branding and some values (such as the ECI) differ." } }, 0);
   addStep(tr, { phase: "setup", from: SERVER, to: BROWSER, name: "3DS Method", title: "Device fingerprinting (3DS Method)",
     explain: "The 3DS Server loads a hidden page from the issuer's ACS in the customer's browser. The ACS quietly collects signals about the device for its risk analysis. If this finishes, the AReq says threeDSCompInd = Y.",
     payload: { threeDSMethodURL: "https://acs.issuer-bank.example/method", threeDSMethodData: { threeDSServerTransID: ids.threeDSServerTransID, threeDSMethodNotificationURL: "https://3ds-server.example/method-done" }, threeDSCompInd: "Y" },
@@ -100,7 +101,7 @@ function areqAres(tr, status) {
     payload: { simulated: true, ...risk }, notes: { riskLevel: "Risk-based authentication: low risk is let through without friction.", decision: "What the ACS will do next." } }, jitter(40, 160));
   const ares = { messageType: "ARes", messageVersion: VERSION, threeDSServerTransID: ids.threeDSServerTransID, acsTransID: ids.acsTransID, dsTransID: ids.dsTransID, transStatus: status };
   if (REASON[status]) ares.transStatusReason = REASON[status];
-  if (status === "Y" || status === "A") { ares.authenticationValue = tr.ctx.cavv; ares.eci = ECI[status]; }
+  if (status === "Y" || status === "A") { ares.authenticationValue = tr.ctx.cavv; ares.eci = eci(tr, status); }
   if (status === "C") { ares.acsChallengeMandated = "Y"; ares.acsURL = "https://acs.issuer-bank.example/challenge"; }
   const notes = { ...SHARED_NOTES, transStatus: `${status} = ${LABEL[status]}. ${SHARED_NOTES.transStatus}` };
   if (ares.transStatusReason) notes.transStatusReason = `${ares.transStatusReason} = ${REASON_TEXT[ares.transStatusReason]}. Explains why the status is not Y.`;
@@ -108,14 +109,14 @@ function areqAres(tr, status) {
   addStep(tr, { phase: "authentication", from: VIA, to: SERVER, name: "ARes", title: `Authentication Response (ARes): transStatus ${status}`,
     explain: status === "C" ? "The issuer is not satisfied yet and asks for a challenge. No authentication value is issued until the cardholder passes it."
       : status === "Y" ? "The issuer authenticated the payment without involving the customer. The response carries the authentication value and ECI that you need for authorisation."
-      : status === "A" ? "Full authentication was not possible, but the network recorded an attempt. The response carries proof of attempt and ECI 06."
+      : status === "A" ? "Full authentication was not possible, but the network recorded an attempt. The response carries proof of attempt and ECI " + eci(tr, "A") + "."
       : "No authentication value is issued. The reason code says why.",
     payload: ares, notes });
   addStep(tr, { phase: "authentication", kind: "info", from: SERVER, to: ME, name: "Result", title: status === "C" ? "3DS Server tells the merchant a challenge is required" : "3DS Server returns the result to the merchant",
     explain: status === "C" ? "Your page must now send the customer's browser to the issuer's challenge page (an iframe or redirect to acsURL)."
       : "The 3DS Server passes the outcome back to you. From here, your next step depends on transStatus.",
     payload: status === "C" ? { transStatus: "C", acsURL: "https://acs.issuer-bank.example/challenge", action: "Open the challenge in the customer's browser" }
-      : { transStatus: status, eci: ECI[status], authenticationValue: tr.ctx.cavv || null, dsTransID: ids.dsTransID }, notes: SHARED_NOTES }, 0);
+      : { transStatus: status, eci: eci(tr, status), authenticationValue: tr.ctx.cavv || null, dsTransID: ids.dsTransID }, notes: SHARED_NOTES }, 0);
 }
 
 function authorization(tr, status, afterChallenge) {
@@ -124,7 +125,7 @@ function authorization(tr, status, afterChallenge) {
     addStep(tr, { phase: "authorization", from: ME, to: ACQ, name: "Authorization", title: status === "U" ? "Authorization request without 3DS proof" : "Authorization request with 3DS proof",
       explain: status === "U" ? "You send the payment for authorisation anyway. With no authentication value there is no liability shift."
         : "You send the normal authorisation request and add the 3DS data. This is what moves fraud liability to the issuer.",
-      payload: { amount: tr.ctx.amount, currency: tr.ctx.currency, card: "************" + tr.ctx.last4, eci: ECI[status], authenticationValue: status === "U" ? null : tr.ctx.cavv, dsTransID: ids.dsTransID, threeDSVersion: VERSION },
+      payload: { amount: tr.ctx.amount, currency: tr.ctx.currency, card: "************" + tr.ctx.last4, eci: eci(tr, status), authenticationValue: status === "U" ? null : tr.ctx.cavv, dsTransID: ids.dsTransID, threeDSVersion: VERSION },
       notes: { eci: SHARED_NOTES.eci, authenticationValue: status === "U" ? "Empty because no authentication happened." : SHARED_NOTES.authenticationValue, dsTransID: SHARED_NOTES.dsTransID } });
     addStep(tr, { phase: "authorization", from: ACQ, to: ME, name: "Authorization response", title: "Payment approved",
       explain: "The issuer approves the payment. " + (o.liability ? "Thanks to the 3DS data, you have liability protection for fraud chargebacks." : "There is no liability shift, so you carry the fraud risk."),
@@ -139,7 +140,7 @@ function authorization(tr, status, afterChallenge) {
 function finalise(tr, status, afterChallenge) {
   const o = outcomeFor(status, afterChallenge);
   tr.complete = true; tr.awaiting = null;
-  tr.result = { trans_status: status, trans_status_label: LABEL[status], eci: ECI[status], authentication_value: status === "Y" || status === "A" ? tr.ctx.cavv : null,
+  tr.result = { trans_status: status, trans_status_label: LABEL[status], eci: eci(tr, status), authentication_value: status === "Y" || status === "A" ? tr.ctx.cavv : null, authentication_value_name: SCH.tdsFor(tr.ctx.scheme).authValueName, scheme_programme: SCH.tdsFor(tr.ctx.scheme).brand,
     liability_shift: o.liability, authorization: o.auth, merchant_takeaway: o.takeaway };
   tr.payment = o.pay;
   return tr;
@@ -149,7 +150,7 @@ function begin(ctx, status) {
   const tr = {
     protocol: `EMV 3-D Secure ${VERSION} (simulated)`, started_at: new Date().toISOString(), t0: Date.now(), clock: 0,
     ids: { threeDSServerTransID: uuid(), acsTransID: uuid(), dsTransID: uuid() },
-    ctx: { amount: ctx.amount, currency: ctx.currency, last4: ctx.last4, cavv: status === "Y" || status === "A" ? crypto.randomBytes(20).toString("base64") : null },
+    ctx: { amount: ctx.amount, currency: ctx.currency, last4: ctx.last4, scheme: ctx.scheme || null, cavv: status === "Y" || status === "A" ? crypto.randomBytes(20).toString("base64") : null },
     steps: [], complete: false, awaiting: null, result: null, payment: null,
   };
   areqAres(tr, status);
@@ -183,7 +184,7 @@ function finishChallenge(tr, approved) {
     explain: approved ? "The code is right. The ACS closes the challenge and tells the browser it is finished." : "The code is wrong. The ACS closes the challenge as failed (real banks usually allow a few retries first).",
     payload: { messageType: "CRes", messageVersion: VERSION, threeDSServerTransID: ids.threeDSServerTransID, acsTransID: ids.acsTransID, transStatus: status, challengeCompletionInd: "Y" },
     notes: { ...SHARED_NOTES, challengeCompletionInd: "Y = the challenge is over." } });
-  const rreq = { messageType: "RReq", messageVersion: VERSION, threeDSServerTransID: ids.threeDSServerTransID, acsTransID: ids.acsTransID, dsTransID: ids.dsTransID, transStatus: status, eci: ECI[status], interactionCounter: "01" };
+  const rreq = { messageType: "RReq", messageVersion: VERSION, threeDSServerTransID: ids.threeDSServerTransID, acsTransID: ids.acsTransID, dsTransID: ids.dsTransID, transStatus: status, eci: eci(tr, status), interactionCounter: "01" };
   if (approved) rreq.authenticationValue = tr.ctx.cavv;
   addStep(tr, { phase: "challenge", from: VIA, to: SERVER, name: "RReq", title: "Results Request (RReq): the bank reports the final outcome",
     explain: "Separately from the browser, the ACS sends the final result to the 3DS Server through the Directory Server. This is the message you can trust. Never rely only on what the browser says.",
@@ -194,12 +195,12 @@ function finishChallenge(tr, approved) {
     notes: { ...SHARED_NOTES, resultsStatus: "01 = results received." } });
   addStep(tr, { phase: "challenge", kind: "info", from: SERVER, to: ME, name: "Result", title: "3DS Server returns the final result to the merchant",
     explain: "The 3DS Server passes the outcome back to you. Now you know whether to authorise.",
-    payload: { transStatus: status, eci: ECI[status], authenticationValue: approved ? tr.ctx.cavv : null, dsTransID: ids.dsTransID }, notes: SHARED_NOTES }, 0);
+    payload: { transStatus: status, eci: eci(tr, status), authenticationValue: approved ? tr.ctx.cavv : null, dsTransID: ids.dsTransID }, notes: SHARED_NOTES }, 0);
   authorization(tr, status, true);
   return finalise(tr, status, true);
 }
 
-const summary = (tr) => ({ protocol: "3ds2", trans_status: tr.result ? tr.result.trans_status : "C", eci: tr.result ? tr.result.eci : null, liability_shift: tr.result ? tr.result.liability_shift : null });
+const summary = (tr) => ({ protocol: "3ds2", trans_status: tr.result ? tr.result.trans_status : "C", eci: tr.result ? tr.result.eci : null, liability_shift: tr.result ? tr.result.liability_shift : null, scheme: tr.ctx.scheme || null });
 
 function publicLog(tr, paymentId) {
   return { payment_id: paymentId, protocol: tr.protocol, started_at: tr.started_at, complete: tr.complete, awaiting: tr.awaiting, ids: tr.ids, steps: tr.steps, result: tr.result };

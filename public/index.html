@@ -231,6 +231,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
         <div><label for="currency">Currency</label><select id="currency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
         <div class="row" style="grid-template-columns:1fr 1fr"><div><label for="method">Method</label><select id="method"><option value="card">Card</option><option value="paypal">PayPal</option><option value="ideal">iDEAL</option><option value="sepa">SEPA debit</option></select></div>
         <div><label for="ttype">Type</label><select id="ttype"></select></div></div>
+        <div class="row" id="schemeRow" style="grid-template-columns:1fr"><div><label for="scheme">Card scheme</label><select id="scheme"><option value="visa">Visa</option><option value="mastercard">Mastercard</option><option value="amex">American Express</option></select></div></div>
         <div class="actions"><button class="primary" id="send">Send payment</button></div>
         <p class="err" id="sendErr" role="alert"></p>
       </fieldset>
@@ -254,6 +255,7 @@ exactly like the list under "Test cards" below.</pre>
       <fieldset id="labForm" disabled>
         <div class="chips" role="radiogroup" aria-label="What the bank does" id="labChips"></div>
         <p class="note" id="labDesc" style="min-height:4.5em"></p>
+        <div class="row" style="grid-template-columns:1fr"><div><label for="labScheme">Card scheme</label><select id="labScheme"><option value="visa">Visa</option><option value="mastercard">Mastercard</option><option value="amex">American Express</option></select></div></div>
         <div class="row"><div><label for="labAmount">Amount</label><input id="labAmount" type="number" min="0.01" step="0.01" value="89.00"></div>
         <div><label for="labCurrency">Currency</label><select id="labCurrency"><option>EUR</option><option>USD</option><option>GBP</option></select></div></div>
         <p class="note">Test card used: <span class="mono" id="labCard"></span></p>
@@ -314,6 +316,7 @@ exactly like the list under "Test cards" below.</pre>
       <div class="tablewrap"><table class="fields"><tbody>
         <tr><td class="mono">when.nth</td><td>Only the Nth payment since you saved the script (1, 2, 3...).</td></tr>
         <tr><td class="mono">when.every</td><td>Every Nth payment.</td></tr>
+        <tr><td class="mono">when.scheme</td><td>Only cards of one scheme: <span class="mono">visa</span>, <span class="mono">mastercard</span> or <span class="mono">amex</span>.</td></tr>
         <tr><td class="mono">when.amount_gte / amount_lte</td><td>Amount at or above or at or below a value.</td></tr>
         <tr><td class="mono">when.currency / method / transaction_type</td><td>Match one currency, method or type.</td></tr>
         <tr><td class="mono">when.probability</td><td>A chance from 0 to 1, for random failures.</td></tr>
@@ -360,22 +363,12 @@ function verify(rawBody, header, secret) {
 
 <section class="block" id="cards">
   <h2>Test cards</h2>
-  <p class="sub">With a card payment, the card number decides the outcome. Any other 16-digit number is declined. Follow-up transactions and non-card methods are approved unless you force an outcome.</p>
+  <p class="sub">With a card payment, the card number decides the outcome. Zanboxx simulates Visa, Mastercard and American Express; each scheme has its own number format, security code, 3-D Secure branding, response codes and chargeback reasons. Any other number is declined. Follow-up transactions and non-card methods are approved unless you force an outcome.</p>
+  <div class="chips" role="radiogroup" aria-label="Card scheme" id="cardChips"></div>
   <div class="card tablewrap"><table>
-    <thead><tr><th>Card number</th><th>Result</th><th>Code</th></tr></thead>
-    <tbody>
-      <tr><td class="mono">4111 1111 1111 1111</td><td>Approved</td><td class="mono">SBX-2000</td></tr>
-      <tr><td class="mono">4000 0000 0000 0002</td><td>Declined by issuer</td><td class="mono">SBX-4002</td></tr>
-      <tr><td class="mono">4000 0000 0000 9995</td><td>Insufficient funds</td><td class="mono">SBX-4051</td></tr>
-      <tr><td class="mono">4000 0000 0000 0069</td><td>Card expired</td><td class="mono">SBX-4054</td></tr>
-      <tr><td class="mono">4000 0000 0000 3000</td><td>3D Secure, frictionless approval (transStatus Y)</td><td class="mono">SBX-2000</td></tr>
-      <tr><td class="mono">4000 0000 0000 3220</td><td>3D Secure challenge (HTTP 202, then confirm)</td><td class="mono">SBX-2020</td></tr>
-      <tr><td class="mono">4000 0000 0000 3238</td><td>3D Secure, frictionless denial (transStatus N)</td><td class="mono">SBX-4030</td></tr>
-      <tr><td class="mono">4000 0000 0000 3253</td><td>3D Secure, attempt recorded (transStatus A)</td><td class="mono">SBX-2000</td></tr>
-      <tr><td class="mono">4000 0000 0000 3261</td><td>3D Secure unavailable (transStatus U), approved without liability shift</td><td class="mono">SBX-2002</td></tr>
-      <tr><td class="mono">4000 0000 0000 3279</td><td>3D Secure rejected by the issuer (transStatus R)</td><td class="mono">SBX-4032</td></tr>
-      <tr><td class="mono">4000 0000 0000 0408</td><td>Gateway timeout (HTTP 504, resolves by webhook after about 3 s)</td><td class="mono">SBX-5040</td></tr>
-    </tbody></table></div>
+    <thead><tr><th>Card number</th><th>Result</th><th>Code</th><th id="schemeCodeHead">Scheme code</th></tr></thead>
+    <tbody id="cardsBody"></tbody></table></div>
+  <div class="card" id="schemeInfo" style="margin-top:12px"></div>
 </section>
 
 <section class="block" id="api">
@@ -438,6 +431,13 @@ var SCENARIOS = [
   { id: "3ds", label: "3D Secure", card: "4000000000003220", force: "3ds" },
   { id: "timeout", label: "Timeout", card: "4000000000000408", force: "timeout" }
 ];
+var SCHEMES = null; // card scheme profiles from GET /v1/schemes
+function cardFor(scheme, outcome, fallback) {
+  if (!SCHEMES || scheme === "visa") return fallback;
+  var p = SCHEMES.filter(function (x) { return x.id === scheme; })[0];
+  var c = p && p.test_cards.filter(function (t) { return t.outcome === outcome; })[0];
+  return c ? c.number : fallback;
+}
 var TYPES = { card: ["purchase", "authorization"], paypal: ["debit", "authorization"], ideal: ["debit"], sepa: ["debit"] };
 var PAY = ["purchase", "debit", "capture-authorization"];
 
@@ -526,6 +526,7 @@ function onMethod() {
   var m = $("#method").value;
   $("#ttype").innerHTML = TYPES[m].map(function (t) { return "<option>" + t + "</option>"; }).join("");
   $("#sc_3ds").disabled = m !== "card";
+  $("#schemeRow").hidden = m !== "card";
   if (m !== "card" && $("#sc_3ds").checked) $("#sc_approve").checked = true;
 }
 function bodyFor(extra) { return Object.assign({ request_id: "web_" + rnd() + rnd() }, extra); }
@@ -536,7 +537,7 @@ $("#send").onclick = async function () {
   var m = $("#method").value, amount = parseFloat($("#amount").value);
   if (!(amount > 0)) { $("#sendErr").textContent = "Enter an amount greater than 0."; return; }
   var req = bodyFor({ method: m, transaction_type: $("#ttype").value, amount: amount, currency: $("#currency").value });
-  if (m === "card") { req.card_number = sc.card; } else { req.scenario = sc.force; }
+  if (m === "card") { req.card_number = cardFor($("#scheme").value, sc.id, sc.card); } else { req.scenario = sc.force; }
   $("#send").disabled = true;
   try {
     var r = await api("POST", "/v1/payments", req);
@@ -710,7 +711,8 @@ var LAB_EMPTY = '<p class="note" style="margin:0">Pick an outcome and run it. Th
 var LABID = null, LABLOG = null;
 
 function labSel() { return LAB.filter(function (s) { return s.id === document.querySelector('input[name="lab"]:checked').value; })[0]; }
-function onLab() { var s = labSel(); $("#labDesc").textContent = s.desc; $("#labCard").textContent = s.card.replace(/(\d{4})(?=\d)/g, "$1 "); }
+function labCard() { var s = labSel(); return cardFor($("#labScheme").value, s.id === "C" ? "3ds" : "3ds_" + s.id, s.card); }
+function onLab() { var s = labSel(); $("#labDesc").textContent = s.desc; $("#labCard").textContent = labCard().replace(/(\d{4})(?=\d)/g, "$1 "); }
 function buildLab() {
   $("#labChips").innerHTML = LAB.map(function (s, i) {
     return '<input type="radio" name="lab" id="lab_' + s.id + '" value="' + s.id + '"' + (i === 0 ? " checked" : "") + '><label for="lab_' + s.id + '">' + esc(s.label) + "</label>";
@@ -737,7 +739,7 @@ function renderLab(prev) {
   } else {
     var r = L.result;
     h += '<div class="sumgrid">' + cell("transStatus", '<span class="badge ' + STATUS_CLASS[r.trans_status] + '">' + esc(r.trans_status) + "</span> " + esc(r.trans_status_label)) +
-      cell("ECI", esc(r.eci)) + cell("Authentication value", r.authentication_value ? '<span class="mono">' + esc(r.authentication_value) + "</span>" : "none") +
+      (r.scheme_programme ? cell("Programme", esc(r.scheme_programme)) : "") + cell("ECI", esc(r.eci)) + cell("Authentication value" + (r.authentication_value_name ? " (" + esc(r.authentication_value_name) + ")" : ""), r.authentication_value ? '<span class="mono">' + esc(r.authentication_value) + "</span>" : "none") +
       cell("Liability shift", r.liability_shift ? "Yes, moves to the issuer" : "No, you keep it") + cell("Authorization", esc(AUTH_TEXT[r.authorization] || r.authorization)) + "</div>" +
       '<p class="take"><strong>What it means for you:</strong> ' + esc(r.merchant_takeaway) + "</p>";
   }
@@ -763,6 +765,7 @@ async function loadLab(id, prev) {
   LABID = id; LABLOG = r.body; renderLab(prev || 0);
 }
 $("#labChips").addEventListener("change", onLab);
+$("#labScheme").onchange = onLab;
 $("#labExplain").onchange = function () { $("#labOut").classList.toggle("no-explain", !this.checked); };
 $("#labFields").onchange = function () {
   var on = this.checked;
@@ -772,7 +775,7 @@ $("#labRun").onclick = async function () {
   $("#labErr").textContent = "";
   var amount = parseFloat($("#labAmount").value);
   if (!(amount > 0)) { $("#labErr").textContent = "Enter an amount greater than 0."; return; }
-  var req = bodyFor({ method: "card", transaction_type: "purchase", amount: amount, currency: $("#labCurrency").value, card_number: labSel().card });
+  var req = bodyFor({ method: "card", transaction_type: "purchase", amount: amount, currency: $("#labCurrency").value, card_number: labCard() });
   $("#labRun").disabled = true;
   try {
     var r = await api("POST", "/v1/payments", req);
@@ -862,7 +865,8 @@ var SCRIPT_PRESETS = [
   { label: "Every 3rd payment declines", rules: [{ name: "Every 3rd payment is declined", when: { every: 3 }, then: { outcome: "decline" } }] },
   { label: "Flaky gateway", rules: [{ name: "Every 4th request gets a 503", when: { every: 4 }, then: { http_error: 503 } }, { name: "One in five is slow", when: { probability: 0.2 }, then: { latency_ms: 3000 } }] },
   { label: "Webhook chaos", rules: [{ name: "Duplicate", when: { every: 2 }, then: { webhook: { duplicate: 1 } } }, { name: "Late", when: { every: 3 }, then: { webhook: { delay_ms: 5000 } } }, { name: "Bad signature", when: { every: 5 }, then: { webhook: { bad_signature: true } } }] },
-  { label: "Large amounts fail", rules: [{ name: "Over 500 is refused", when: { amount_gte: 500 }, then: { outcome: "nsf" } }] }
+  { label: "Large amounts fail", rules: [{ name: "Over 500 is refused", when: { amount_gte: 500 }, then: { outcome: "nsf" } }] },
+  { label: "Amex is down", rules: [{ name: "American Express is declined", when: { scheme: "amex" }, then: { outcome: "decline" } }] }
 ];
 function scriptMsg(id, text, isErr) { var el = $(id); el.textContent = text || ""; el.className = isErr ? "err" : "note"; }
 function buildScriptPresets() {
@@ -932,6 +936,43 @@ $("#whDetail").addEventListener("click", async function (e) {
 buildLab();
 buildScriptPresets();
 buildChips();
+
+// ---------- card schemes: test card table ----------
+var SBX = { approve: "SBX-2000", decline: "SBX-4002", nsf: "SBX-4051", expired: "SBX-4054", timeout: "SBX-5040", "3ds_Y": "SBX-2000", "3ds": "SBX-2020", "3ds_N": "SBX-4030", "3ds_A": "SBX-2000", "3ds_U": "SBX-2002", "3ds_R": "SBX-4032" };
+var OUT_TEXT = { approve: "Approved", decline: "Declined by issuer", nsf: "Insufficient funds", expired: "Card expired", timeout: "Gateway timeout (HTTP 504, resolves by webhook after about 3 s)",
+  "3ds_Y": "3D Secure, frictionless approval (transStatus Y)", "3ds": "3D Secure challenge (HTTP 202, then confirm)", "3ds_N": "3D Secure, frictionless denial (transStatus N)",
+  "3ds_A": "3D Secure, attempt recorded (transStatus A)", "3ds_U": "3D Secure unavailable (transStatus U), approved without liability shift", "3ds_R": "3D Secure rejected by the issuer (transStatus R)" };
+function spaced(n) { return n.length === 15 ? n.replace(/^(\d{4})(\d{6})(\d{5})$/, "$1 $2 $3") : n.replace(/(\d{4})(?=\d)/g, "$1 "); }
+function renderCards(id) {
+  var p = SCHEMES.filter(function (x) { return x.id === id; })[0];
+  if (!p) return;
+  $("#cardsBody").innerHTML = p.test_cards.map(function (c) {
+    var r = p.responses[c.outcome], sc = r ? r.code + " " + r.message : (c.outcome === "3ds_N" || c.outcome === "3ds_R" ? p.responses.decline.code + " " + p.responses.decline.message : "");
+    return '<tr><td class="mono">' + esc(spaced(c.number)) + "</td><td>" + esc(OUT_TEXT[c.outcome] || c.label) + '</td><td class="mono">' + esc(SBX[c.outcome] || "") + '</td><td class="mono">' + esc(sc) + "</td></tr>";
+  }).join("");
+  var eci = p.three_ds.eci;
+  $("#schemeInfo").innerHTML = "<strong>" + esc(p.name) + "</strong>" +
+    '<p class="note" style="margin:6px 0">' + esc(p.note) + "</p>" +
+    '<p class="note" style="margin:6px 0"><strong>Card number:</strong> ' + esc(p.number_lengths.join(" or ")) + " digits. <strong>Security code:</strong> " + esc(p.security_code.name) + ", " + p.security_code.length + " digits, on the " + esc(p.security_code.where.replace("back of the card", "back").replace("front of the card", "front")) + ".</p>" +
+    '<p class="note" style="margin:6px 0"><strong>3-D Secure:</strong> ' + esc(p.three_ds.brand) + ". Authentication value: " + esc(p.three_ds.authentication_value) + ". ECI: " + esc(eci.Y) + " authenticated, " + esc(eci.A) + " attempted, " + esc(eci.N) + " not authenticated.</p>" +
+    '<p class="note" style="margin:6px 0"><strong>Common chargeback reasons:</strong> ' + p.chargeback_reasons.map(function (c) { return esc(c.code + " " + c.reason); }).join("; ") + ".</p>";
+}
+function buildCardChips() {
+  $("#cardChips").innerHTML = SCHEMES.map(function (x, i) {
+    return '<input type="radio" name="cardscheme" id="cs_' + x.id + '" value="' + x.id + '"' + (i === 0 ? " checked" : "") + '><label for="cs_' + x.id + '">' + esc(x.name) + "</label>";
+  }).join("");
+  renderCards(SCHEMES[0].id);
+}
+$("#cardChips").addEventListener("change", function (e) { renderCards(e.target.value); });
+async function loadSchemes() {
+  try {
+    var r = await fetch("/v1/schemes");
+    if (!r.ok) return;
+    SCHEMES = (await r.json()).schemes;
+    buildCardChips(); onLab();
+  } catch (e) {}
+}
+loadSchemes();
 $("#method").onchange = onMethod;
 onMethod();
 Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });

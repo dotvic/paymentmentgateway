@@ -198,7 +198,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     for (const [num, [ts, eci, shift, state, code]] of Object.entries(EXPECT)) {
       const r = await tds(num);
       assert.equal(r.status, 201, num); assert.equal(r.body.transaction_state, state, num); assert.equal(r.body.status.code, code, num);
-      assert.deepEqual(r.body.authentication, { protocol: "3ds2", trans_status: ts, eci, liability_shift: shift }, num);
+      assert.deepEqual(r.body.authentication, { protocol: "3ds2", trans_status: ts, eci, liability_shift: shift, scheme: "visa" }, num);
       firstLogged = firstLogged || r.body.id;
       const lg = await getLog(r.body.id);
       assert.equal(lg.status, 200); assert.equal(lg.body.complete, true); assert.equal(lg.body.result.trans_status, ts);
@@ -221,13 +221,13 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     // challenge: approve
     const ch = await tds("4000000000003220");
     assert.equal(ch.status, 202); assert.equal(ch.body.three_ds.log_url, `/v1/payments/${ch.body.id}/3ds-log`);
-    assert.deepEqual(ch.body.authentication, { protocol: "3ds2", trans_status: "C", eci: null, liability_shift: null });
+    assert.deepEqual(ch.body.authentication, { protocol: "3ds2", trans_status: "C", eci: null, liability_shift: null, scheme: "visa" });
     const wait = (await getLog(ch.body.id)).body;
     assert.equal(wait.complete, false); assert.equal(wait.awaiting, "cardholder"); assert.equal(wait.result, null);
     assert.equal(wait.steps[wait.steps.length - 1].name, "CRes"); assert.equal(wait.steps[wait.steps.length - 1].payload.challengeCompletionInd, "N");
     const done = await api("POST", `/v1/payments/${ch.body.id}/3ds`, { result: "approve" });
     assert.equal(done.body.transaction_state, "success");
-    assert.deepEqual(done.body.authentication, { protocol: "3ds2", trans_status: "Y", eci: "05", liability_shift: true });
+    assert.deepEqual(done.body.authentication, { protocol: "3ds2", trans_status: "Y", eci: "05", liability_shift: true, scheme: "visa" });
     const full = (await getLog(ch.body.id)).body, fn = full.steps.map((s) => s.name);
     assert.equal(full.complete, true); assert.equal(full.awaiting, null);
     assert.deepEqual(full.steps.slice(0, wait.steps.length), wait.steps, "earlier steps are unchanged when the challenge finishes");
@@ -240,7 +240,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     const ch2 = await tds("4000000000003220");
     const failed = await api("POST", `/v1/payments/${ch2.body.id}/3ds`, { result: "fail" });
     assert.equal(failed.body.transaction_state, "failed"); assert.equal(failed.body.status.code, "SBX-4030");
-    assert.deepEqual(failed.body.authentication, { protocol: "3ds2", trans_status: "N", eci: "07", liability_shift: false });
+    assert.deepEqual(failed.body.authentication, { protocol: "3ds2", trans_status: "N", eci: "07", liability_shift: false, scheme: "visa" });
     const full2 = (await getLog(ch2.body.id)).body, fn2 = full2.steps.map((s) => s.name);
     assert.ok(fn2.includes("Stop") && !fn2.includes("Authorization"));
     assert.equal(full2.steps.find((s) => s.name === "RReq").payload.authenticationValue, undefined, "no authentication value after a failed challenge");
@@ -258,6 +258,54 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     const old = await getLog(firstLogged);
     assert.equal(old.status, 404); assert.ok(old.body.error.message.includes("no longer stored"));
     assert.equal((await getLog(lastId)).status, 200);
+
+    // ---- card schemes: Visa, Mastercard, American Express ----
+    const sch = await (await fetch(BASE + "/v1/schemes")).json();
+    assert.deepEqual(sch.schemes.map((x) => x.id), ["visa", "mastercard", "amex"]);
+    for (const x of sch.schemes) { assert.ok(x.test_cards.length >= 11, x.id); assert.ok(x.chargeback_reasons.length >= 3, x.id); }
+    assert.deepEqual(sch.schemes.find((x) => x.id === "amex").number_lengths, [15]);
+    const want = { visa: ["4111111111111111", "4000000000000002", "4000000000009995", "4000000000000069", "05", "51", "54"],
+      mastercard: ["5555555555554444", "5200000000000007", "5200000000099959", "5200000000000692", "05", "51", "54"],
+      amex: ["378282246310005", "370000000000002", "370000000099954", "370000000000697", "100", "116", "101"] };
+    for (const [id, [ok, dec, nsf, exp, cDec, cNsf, cExp]] of Object.entries(want)) {
+      const a1 = await api("POST", "/v1/payments", card(ok)); assert.equal(a1.status, 201, id); assert.equal(a1.body.transaction_state, "success", id); assert.equal(a1.body.scheme, id);
+      const rfd = await api("POST", "/v1/payments", { request_id: "rf-" + id, method: "card", transaction_type: "refund", amount: 1, parent_transaction_id: a1.body.id });
+      assert.equal(rfd.body.scheme, id, "follow-up keeps the scheme");
+      for (const [num, code, sbx] of [[dec, cDec, "SBX-4002"], [nsf, cNsf, "SBX-4051"], [exp, cExp, "SBX-4054"]]) {
+        const d = await api("POST", "/v1/payments", card(num));
+        assert.equal(d.body.transaction_state, "failed", num); assert.equal(d.body.status.code, sbx, num);
+        assert.equal(d.body.scheme_response.code, code, num); assert.equal(d.body.scheme_response.scheme, id); assert.ok(d.body.scheme_response.retry_advice);
+      }
+    }
+    // format rules
+    const bad400 = async (n, extra) => { const r = await api("POST", "/v1/payments", card(n, extra)); assert.equal(r.status, 400, n + JSON.stringify(extra || {})); return r.body.error.message; };
+    assert.ok((await bad400("3782822463100050")).includes("American Express")); // 16 digits
+    assert.ok((await bad400("37828224631000")).includes("American Express")); // 14 digits
+    assert.ok((await bad400("5555555555")).includes("13 to 19"));
+    assert.ok((await bad400("378282246310005", { card_cvv: "123" })).includes("4-digit CID"));
+    assert.ok((await bad400("4111111111111111", { card_cvv: "1234" })).includes("3-digit CVV2"));
+    assert.equal((await api("POST", "/v1/payments", card("378282246310005", { card_cvv: "1234" }))).status, 201);
+    assert.equal((await api("POST", "/v1/payments", card("5555555555554444", { card_cvv: "123" }))).status, 201);
+    const luhnBad = await api("POST", "/v1/payments", card("4000000000000001"));
+    assert.equal(luhnBad.body.status.code, "SBX-4014"); assert.equal(luhnBad.body.scheme_response.code, "14");
+    const unknown = await api("POST", "/v1/payments", card("6011111111111117"));
+    assert.equal(unknown.body.transaction_state, "failed"); assert.equal(unknown.body.scheme, undefined);
+    // 3-D Secure: branding and ECI follow the scheme
+    const tdsOf = async (n) => { const r = await api("POST", "/v1/payments", card(n)); return { r, log: (await getLog(r.body.id)).body }; };
+    const mY = await tdsOf("5200000000030004"); assert.equal(mY.r.body.authentication.eci, "02"); assert.equal(mY.r.body.authentication.scheme, "mastercard");
+    assert.equal(mY.log.result.scheme_programme, "Mastercard Identity Check"); assert.equal(mY.log.result.authentication_value_name, "AAV (UCAF)");
+    assert.equal((await tdsOf("5200000000032539")).r.body.authentication.eci, "01");
+    assert.equal((await tdsOf("5200000000032380")).r.body.authentication.eci, "00");
+    const aY = await tdsOf("370000000030009"); assert.equal(aY.r.body.authentication.eci, "05"); assert.equal(aY.log.result.scheme_programme, "American Express SafeKey");
+    assert.equal((await tdsOf("370000000032534")).r.body.authentication.eci, "06");
+    const aC = await api("POST", "/v1/payments", card("370000000032203")); assert.equal(aC.status, 202);
+    assert.equal((await api("POST", `/v1/payments/${aC.body.id}/3ds`, { result: "approve" })).body.authentication.eci, "05");
+    const mC = await api("POST", "/v1/payments", card("5200000000032208"));
+    const mCd = await api("POST", `/v1/payments/${mC.body.id}/3ds`, { result: "approve" }); assert.equal(mCd.body.authentication.eci, "02");
+    const aN = await tdsOf("370000000032385"); assert.equal(aN.r.body.transaction_state, "failed"); assert.equal(aN.r.body.scheme_response.code, "100");
+    // 3DS-lab style call: scenario forced with a card of that scheme still carries the scheme through
+    const forced = await api("POST", "/v1/payments", { request_id: "forced-mc", method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", scenario: "3ds", card_number: "5200000000099959" });
+    assert.equal(forced.status, 202); assert.equal(forced.body.scheme, "mastercard");
 
     // ---- email: verify, sign in with a link, rotate key ----
     const cfgE = await (await fetch(BASE + "/v1/config")).json(); assert.equal(cfgE.email, true);
@@ -363,6 +411,11 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
     const sy = await pay(); assert.equal(sy.status, 201); assert.equal(sy.body.authentication.trans_status, "Y");
     const rf = await api("POST", "/v1/payments", { request_id: "rf1", method: "card", transaction_type: "refund", amount: 1, parent_transaction_id: sy.body.id });
     assert.equal(rf.status, 201); assert.equal(rf.body.transaction_state, "success", "3ds rule ignored for a refund");
+    // rules can target one card scheme
+    assert.equal((await api("PUT", "/v1/script", { rules: [{ name: "amex down", when: { scheme: "amex" }, then: { outcome: "decline" } }] })).status, 200);
+    assert.equal((await pay()).body.transaction_state, "success", "visa unaffected");
+    const am = await api("POST", "/v1/payments", card("378282246310005")); assert.equal(am.body.transaction_state, "failed"); assert.equal(am.body.script_rule, 1); assert.equal(am.body.scheme_response.code, "100");
+    assert.equal((await api("PUT", "/v1/script", { rules: [{ when: { scheme: "discover" }, then: { outcome: "decline" } }] })).status, 400);
 
     // injected HTTP errors do not create payments or use up quota
     await api("PUT", "/v1/script", { rules: [{ when: { nth: 1 }, then: { http_error: 503 } }] });
