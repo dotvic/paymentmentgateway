@@ -211,6 +211,14 @@ function sweepDisputes(acc) {
   for (const e of evs) emitDispute(acc, e.d, e.type);
 }
 
+// ---------- clearing, settlement and payouts, see settlement.js ----------
+const STL = require("./settlement")({ bad, rnd });
+const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d;
+function sendText(res, status, type, body, filename) {
+  res.writeHead(status, { "content-type": type + "; charset=utf-8", "content-length": Buffer.byteLength(body), "x-content-type-options": "nosniff", ...(filename ? { "content-disposition": `attachment; filename="${filename}"` } : {}) });
+  res.end(body);
+}
+
 // ---------- gateway simulation ----------
 const pub = (p) => Object.fromEntries(Object.entries(p).filter(([k]) => !k.startsWith("_")));
 
@@ -231,6 +239,7 @@ function checkParent(p, type, amount) {
     if (p.transaction_type === "authorization" && p.captured_amount > 0) return ["SBX-4227", "Authorization already captured; refund the capture instead"];
     if (p.transaction_type !== "authorization" && p.refunded_amount > 0) return ["SBX-4228", "Transaction already refunded; it can no longer be voided"];
     if (p.dispute_id) return ["SBX-4233", "Transaction is disputed; it can no longer be voided"];
+    if (p.settled_in) return ["SBX-4234", `Transaction was already cleared in settlement ${p.settled_in}; it can no longer be voided. Refund it instead`];
   }
   return null;
 }
@@ -762,6 +771,35 @@ async function route(req, res) {
     save(acc); emitDispute(acc, d, "dispute.created");
     return send(res, 201, DSP.publicDispute(d));
   }
+  const today = () => new Date().toISOString().slice(0, 10);
+  if (m === "GET" && path === "/v1/reports/transactions") {
+    const date = url.searchParams.get("date") || today();
+    if (!validDate(date)) throw bad(400, "invalid_request", "date must be a real date like 2026-11-03 (UTC)");
+    return sendText(res, 200, "text/csv", STL.transactionsCsv(acc, date), `zbx-transactions-${date.replace(/-/g, "")}.csv`);
+  }
+  if (path === "/v1/settlements" || path.startsWith("/v1/settlements/")) {
+    const sts = acc.settlements || [];
+    if (m === "GET" && path === "/v1/settlements/fees") return send(res, 200, STL.FEES);
+    if (m === "POST" && path === "/v1/settlements") {
+      const b = await readBody(req), date = b.date === undefined ? today() : b.date;
+      if (typeof date !== "string" || !validDate(date)) throw bad(400, "invalid_request", "date must be a real date like 2026-11-03 (UTC)");
+      if (date > today()) throw bad(400, "invalid_request", "date cannot be in the future");
+      const st = STL.createBatch(acc, date);
+      save(acc);
+      deliver(acc, { id: "evt_" + rnd(8), type: "settlement.created", created_at: new Date().toISOString(), data: STL.summary(st) });
+      return send(res, 201, { ...STL.summary(st), files: STL.listFiles(st) });
+    }
+    if (m === "GET" && path === "/v1/settlements") return send(res, 200, { data: sts.map(STL.summary) });
+    if ((mt = path.match(/^\/v1\/settlements\/(stl_[a-f0-9]+)(?:\/(reconcile|files)(?:\/([A-Za-z0-9._-]+))?)?$/))) {
+      const st = sts.find((x) => x.id === mt[1]);
+      if (!st) throw bad(404, "not_found", "Settlement not found");
+      if (m === "GET" && !mt[2]) return send(res, 200, { ...STL.summary(st), files: STL.listFiles(st), records: st.records });
+      if (m === "GET" && mt[2] === "files" && !mt[3]) return send(res, 200, { data: STL.listFiles(st) });
+      if (m === "GET" && mt[2] === "files") { const f = STL.build(st, mt[3]); if (!f) throw bad(404, "not_found", "File not found. List the files at /v1/settlements/{id}/files"); return sendText(res, 200, f.type, f.body, mt[3]); }
+      if (m === "POST" && mt[2] === "reconcile") return send(res, 200, STL.reconcile(st, await readBody(req)));
+    }
+    throw bad(404, "not_found", "Unknown endpoint");
+  }
   if (path === "/v1/agreements" || path.startsWith("/v1/agreements/")) {
     const ags = acc.agreements || [];
     if (m === "GET" && path === "/v1/agreements") {
@@ -926,7 +964,7 @@ async function route(req, res) {
     purgeAccount(acc.id);
     return send(res, 200, { deleted: true });
   }
-  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; acc.disputes = []; acc.agreements = []; save(acc); return send(res, 200, { cleared: true }); }
+  if (m === "DELETE" && path === "/v1/payments") { acc.payments = []; acc.deliveries = []; acc.disputes = []; acc.agreements = []; acc.settlements = []; save(acc); return send(res, 200, { cleared: true }); }
   throw bad(404, "not_found", "Unknown endpoint");
 }
 

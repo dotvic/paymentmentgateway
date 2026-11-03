@@ -773,6 +773,105 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/agreements")).body.data.length, 0);
     }
 
+    // ---- clearing, settlement, payouts and reconciliation ----
+    {
+      const sa = await api("POST", "/v1/accounts"); key = sa.body.api_key;
+      await api("POST", "/v1/account/email", { email: "settle@example.test" }); await sleep(150); assert.ok((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).body.trial_ends);
+      const ws = await api("PUT", "/v1/webhook", { url: `http://127.0.0.1:${HOOK}/hook` }); secret = ws.body.secret; hooks.length = 0;
+      const waitS = async (fn, ms = 4000) => { const t = Date.now(); while (Date.now() - t < ms) { const r = await fn(); if (r) return r; await sleep(60); } return null; };
+      const pay = async (n, extra) => (await api("POST", "/v1/payments", card(n, { amount: 100, ...extra }))).body;
+      const raw = async (path) => { const r = await fetch(BASE + path, { headers: { authorization: "Bearer " + key } }); return { status: r.status, type: r.headers.get("content-type"), text: await r.text() }; };
+
+      const v1 = await pay("4111111111111111", { amount: 100 }), v2 = await pay("4111111111111111", { amount: 50 });
+      const rf = (await api("POST", "/v1/payments", { request_id: "stl-rf", method: "card", transaction_type: "refund", amount: 20, parent_transaction_id: v2.id })).body;
+      const m1 = await pay("5555555555554444", { amount: 80, currency: "USD" });
+      const a1 = await pay("378282246310005", { amount: 40 });
+      const a2 = await pay("378282246310005", { amount: 30, transaction_type: "authorization" });
+      const a3 = await pay("378282246310005", { amount: 60, transaction_type: "authorization" });
+      const cap = (await api("POST", "/v1/payments", { request_id: "stl-cap", method: "card", transaction_type: "capture-authorization", amount: 60, parent_transaction_id: a3.id })).body;
+      const failedP = await pay("4000000000000002"); assert.equal(failedP.transaction_state, "failed");
+      const voided = await pay("4111111111111111", { amount: 15 }); await api("POST", "/v1/payments", { request_id: "stl-void", method: "card", transaction_type: "void", parent_transaction_id: voided.id });
+      await api("POST", "/v1/payments", { request_id: "stl-pp", method: "paypal", transaction_type: "debit", amount: 9, currency: "EUR" });
+      const stp = await pay("4111111111111111", { amount: 10, store_credential: { type: "unscheduled" } });
+      const mitp = (await api("POST", "/v1/payments", { request_id: "stl-mit", method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", initiator: "merchant", agreement_id: stp.agreement_id })).body;
+      const dA = (await api("POST", `/v1/payments/${v1.id}/dispute`, { reason_code: "10.4", outcome: "win" })).body;
+      await api("POST", `/v1/disputes/${dA.id}/evidence`, { customer_ip: "1.1.1.1" });
+      const dB = (await api("POST", `/v1/payments/${m1.id}/dispute`, { reason: "fraud", outcome: "lose" })).body;
+      await api("POST", `/v1/disputes/${dB.id}/evidence`, { customer_ip: "1.1.1.1" });
+      await waitS(async () => (await api("GET", `/v1/disputes/${dA.id}`)).body.state === "won" && (await api("GET", `/v1/disputes/${dB.id}`)).body.state === "lost");
+
+      // fee schedule and validation
+      const fees = (await api("GET", "/v1/settlements/fees")).body; assert.equal(fees.visa.percent, 1.4); assert.equal(fees.chargeback_fixed, 15);
+      assert.equal((await api("POST", "/v1/settlements", { date: "2999-01-01" })).status, 400, "future");
+      for (const d of ["nonsense", "2026-02-30", 20261103]) assert.equal((await api("POST", "/v1/settlements", { date: d })).status, 400, String(d));
+      assert.equal((await api("POST", "/v1/settlements", { date: "2000-01-01" })).status, 409, "nothing was cleared that long ago");
+
+      // closing the day
+      const st = await api("POST", "/v1/settlements", {}); assert.equal(st.status, 201, JSON.stringify(st.body));
+      const b1 = (await api("GET", `/v1/settlements/${st.body.id}`)).body;
+      assert.equal(b1.record_count, 11); const ids = (k) => b1.records.filter((r) => r.kind === k).map((r) => r.payment_id).sort();
+      assert.deepEqual(ids("presentment"), [v1.id, v2.id, m1.id, a1.id, cap.id, stp.id, mitp.id].sort());
+      assert.deepEqual(ids("refund"), [rf.id]); assert.deepEqual(ids("chargeback"), [v1.id, m1.id].sort()); assert.deepEqual(ids("chargeback_reversal"), [v1.id]);
+      for (const nope of [a2.id, a3.id, failedP.id, voided.id]) assert.ok(!b1.records.some((r) => r.payment_id === nope), nope + " is not cleared");
+      const mr = b1.records.find((r) => r.payment_id === mitp.id); assert.equal(mr.mit, true); assert.equal(mr.ntid, mitp.network_transaction_id); assert.equal(mr.agreement_id, stp.agreement_id);
+      assert.equal(b1.records.find((r) => r.kind === "chargeback" && r.payment_id === v1.id).reason_code, "10.4");
+      const tot = (sch, cur) => b1.totals.find((t) => t.scheme === sch && t.currency === cur);
+      assert.deepEqual(b1.totals.map((t) => t.scheme + t.currency), ["visaEUR", "mastercardUSD", "amexEUR"]);
+      let t = tot("visa", "EUR"); assert.deepEqual([t.presentments.count, t.presentments.amount, t.refunds.amount, t.chargebacks.amount, t.chargeback_reversals.amount, t.fees, t.net], [4, 165, 20, 100, 100, 17.71, 127.29]);
+      t = tot("mastercard", "USD"); assert.deepEqual([t.presentments.amount, t.chargebacks.amount, t.fees, t.net], [80, 80, 16.3, -16.3]);
+      t = tot("amex", "EUR"); assert.deepEqual([t.presentments.count, t.presentments.amount, t.fees, t.net], [2, 100, 2.5, 97.5]);
+      assert.deepEqual(b1.payouts.map((p) => [p.currency, p.amount, p.direction]), [["EUR", 224.79, "to_merchant"], ["USD", -16.3, "from_merchant"]]);
+      assert.equal(b1.payout_date, new Date(Date.parse(b1.cutoff) + 2 * 864e5).toISOString().slice(0, 10), "payout two days after the cutoff");
+      assert.equal((await api("GET", `/v1/payments/${v1.id}`)).body.settled_in, st.body.id);
+      assert.equal((await api("POST", "/v1/payments", { request_id: "stl-late-void", method: "card", transaction_type: "void", parent_transaction_id: a1.id })).body.error.code, "SBX-4234", "a cleared payment can no longer be voided");
+      await waitS(() => hooks.find((h) => h.body.type === "settlement.created" && h.body.data.id === st.body.id)); assert.ok(hooks.find((h) => h.body.type === "settlement.created").ok);
+      assert.equal((await api("POST", "/v1/settlements", {})).status, 409, "nothing left to clear");
+
+      // files
+      const fl = (await api("GET", `/v1/settlements/${st.body.id}/files`)).body.data; const ymdS = b1.cutoff.replace(/-/g, "");
+      assert.deepEqual(fl.map((f) => f.name), [`zbx-visa-clearing-${ymdS}.dat`, `zbx-mastercard-clearing-${ymdS}.txt`, `zbx-amex-clearing-${ymdS}.csv`, `zbx-settlement-${ymdS}.csv`, `zbx-payout-${ymdS}.csv`]);
+      const vf = await raw(`/v1/settlements/${st.body.id}/files/${fl[0].name}`); assert.equal(vf.status, 200); assert.ok(vf.type.startsWith("text/plain"));
+      const vl = vf.text.trimEnd().split("\n"); assert.equal(vl[0], "H" + st.body.id.padEnd(12) + ymdS); assert.equal(vl.length, 1 + 7 + 1);
+      const dl = vl.slice(1, -1); assert.ok(dl.every((l) => l.length === 95 && l[0] === "D"), "detail lines are 95 characters");
+      assert.deepEqual(dl.map((l) => l.slice(1, 3)).sort(), ["CB", "CR", "PS", "PS", "PS", "PS", "RF"]);
+      assert.equal(vl.at(-1), "T" + "00000007" + "00000000038500"); assert.equal(dl.reduce((a, l) => a + Number(l.slice(56, 68)), 0), 38500);
+      const cbLine = dl.find((l) => l.startsWith("DCB")); assert.equal(cbLine.slice(3, 22).trim(), v1.id); assert.equal(cbLine.slice(22, 41).trim(), dA.id); assert.equal(cbLine.slice(68, 71), "EUR"); assert.equal(cbLine.slice(75, 81).trim(), "10.4");
+      const mf = (await raw(`/v1/settlements/${st.body.id}/files/${fl[1].name}`)).text.trimEnd().split("\n"); assert.equal(mf[0], `HDR|${st.body.id}|${b1.cutoff}|MASTERCARD`);
+      assert.equal(mf.length, 4); assert.equal(mf.at(-1), "TRL|2|160.00"); assert.ok(mf[1].startsWith("TXN|PRESENTMENT|" + m1.id + "||")); assert.equal(mf[1].split("|").length, 10);
+      const af = (await raw(`/v1/settlements/${st.body.id}/files/${fl[2].name}`)); assert.ok(af.type.startsWith("text/csv")); const al = af.text.trimEnd().split("\n");
+      assert.equal(al[0], `HEADER,${st.body.id},${b1.cutoff},AMEX`); assert.ok(al[1].startsWith("record_type,kind,transaction_id")); assert.equal(al.length, 5); assert.equal(al.at(-1), "TRAILER,2,100.00");
+      const sr = (await raw(`/v1/settlements/${st.body.id}/files/${fl[3].name}`)).text.trimEnd().split("\n"); assert.equal(sr.length, 4);
+      assert.equal(sr[1], `${st.body.id},${b1.cutoff},visa,EUR,4,165.00,1,20.00,1,100.00,1,100.00,17.71,127.29`); assert.equal(sr[2].split(",").at(-1), "-16.30");
+      const pf = (await raw(`/v1/settlements/${st.body.id}/files/${fl[4].name}`)).text.trimEnd().split("\n"); assert.equal(pf.length, 3); assert.ok(pf[1].endsWith(`,EUR,224.79,to_merchant,${b1.payout_date}`));
+      assert.equal((await raw(`/v1/settlements/${st.body.id}/files/nope.csv`)).status, 404); assert.equal((await api("GET", "/v1/settlements/stl_ffffffff")).status, 404);
+
+      // reconciliation: a ledger with deliberate mistakes
+      const ledger = ["transaction_id,amount,currency", `${v1.id},100.00,EUR`, `${v1.id},100.00,EUR`, `${v2.id},55.00,EUR`, `${a1.id},40.00,USD`, `${m1.id},80.00,USD`, "tx_deadbeef,12.00,EUR"].join("\n");
+      const rc = (await api("POST", `/v1/settlements/${st.body.id}/reconcile`, { csv: ledger })).body;
+      assert.deepEqual(rc.summary, { matched: 2, amount_mismatch: 1, currency_mismatch: 1, missing_in_clearing: 1, missing_in_ledger: 4, duplicate_in_ledger: 1 }); assert.equal(rc.ok, false);
+      const st_ = (id) => rc.items.find((i) => i.transaction_id === id && i.status !== "duplicate_in_ledger").status;
+      assert.equal(st_(v2.id), "amount_mismatch"); assert.equal(st_(a1.id), "currency_mismatch"); assert.equal(st_("tx_deadbeef"), "missing_in_clearing"); assert.equal(st_(cap.id), "missing_in_ledger"); assert.equal(st_(rf.id), "missing_in_ledger");
+      assert.equal(rc.adjustments.length, 3); assert.ok(rc.adjustments.some((x) => x.kind === "chargeback" && x.reason_code === "10.4")); assert.ok(rc.note.includes("fictional"));
+      const semi = (await api("POST", `/v1/settlements/${st.body.id}/reconcile`, { csv: `id;amount\n${v1.id};100,00\n${m1.id};80,00` })).body; assert.equal(semi.summary.matched, 2, "semicolon CSV with decimal commas");
+      for (const body of [{}, { csv: "only a header" }, { csv: "foo,bar\n1,2" }, { ledger: [] }, { ledger: "x" }]) assert.equal((await api("POST", `/v1/settlements/${st.body.id}/reconcile`, body)).status, 400, JSON.stringify(body));
+      assert.equal((await api("POST", "/v1/settlements/stl_ffffffff/reconcile", { csv: ledger })).status, 404);
+
+      // late events go into the next batch, and nothing is cleared twice
+      const late = await pay("4111111111111111", { amount: 7 });
+      const st2 = await api("POST", "/v1/settlements", {}); assert.equal(st2.status, 201); const b2 = (await api("GET", `/v1/settlements/${st2.body.id}`)).body;
+      assert.deepEqual(b2.records.map((r) => [r.kind, r.payment_id]), [["presentment", late.id]]); assert.equal(b2.payouts[0].amount, 6.8); // 7.00 minus a fee of 0.20 (1.4% = 0.098, plus 0.10, rounded)
+      assert.equal((await api("GET", "/v1/settlements")).body.data.length, 2); assert.equal((await api("GET", "/v1/settlements")).body.data[0].records, undefined);
+      const perfect = (await api("POST", `/v1/settlements/${st2.body.id}/reconcile`, { ledger: [{ transaction_id: late.id, amount: 7, currency: "EUR" }] })).body; assert.equal(perfect.ok, true); assert.equal(perfect.summary.matched, 1);
+
+      // daily export of every transaction
+      const today = new Date().toISOString().slice(0, 10); const ex = await raw(`/v1/reports/transactions?date=${today}`);
+      assert.equal(ex.status, 200); assert.ok(ex.type.startsWith("text/csv")); const el = ex.text.trimEnd().split("\n"); assert.ok(el[0].startsWith("transaction_id,request_id,parent_transaction_id,method"));
+      const all = (await api("GET", "/v1/payments?limit=100")).body.data; assert.equal(el.length - 1, all.filter((p) => p.created_at.slice(0, 10) === today).length);
+      assert.ok(el.some((l) => l.includes(",paypal,"))); assert.ok(el.some((l) => l.startsWith(v1.id) && l.endsWith(`,${dA.id},won,${st.body.id}`)), "dispute and settlement show on the row");
+      assert.equal((await raw("/v1/reports/transactions?date=2001-01-01")).text.trimEnd().split("\n").length, 1); assert.equal((await raw("/v1/reports/transactions?date=bogus")).status, 400);
+      assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/settlements")).body.data.length, 0);
+    }
+
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
   finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }

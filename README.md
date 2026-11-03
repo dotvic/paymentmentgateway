@@ -59,6 +59,12 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `PUT/GET/DELETE /v1/webhook` | Manage the webhook; PUT returns a signing `secret` |
 | `POST /v1/webhook/test` | Send a `ping` event |
 | `GET /v1/webhook/deliveries` | Delivery attempts and retries |
+| `POST /v1/settlements` | Close the day: clear everything not yet cleared up to the end of `date` (UTC, default today) into one batch with clearing files, a settlement report and payouts |
+| `GET /v1/settlements`, `GET /v1/settlements/{id}` | List batches or fetch one with totals, payouts and records |
+| `GET /v1/settlements/{id}/files`, `GET /v1/settlements/{id}/files/{name}` | List the files of a batch, or download one |
+| `POST /v1/settlements/{id}/reconcile` | Compare your ledger (`{"csv": "..."}` or `{"ledger": [...]}`) with a batch |
+| `GET /v1/settlements/fees` | The fictional fee schedule |
+| `GET /v1/reports/transactions?date=` | CSV of every transaction created on a UTC day, all methods, with scheme, dispute and settlement columns |
 | `GET /v1/agreements`, `GET /v1/agreements/{id}` | Card-on-file agreements created by a first payment with `store_credential` |
 | `POST /v1/agreements/{id}/cancel` | Cancel an agreement; later merchant-initiated payments on it are refused |
 | `POST /v1/payments/{id}/dispute` | Play the cardholder's bank and raise a dispute on a successful card purchase or capture. Optional `reason_code` (the payment's scheme code, e.g. `13.1`, `4837`, `F29`) or `reason` (`fraud`, `not_received`, `not_as_described`, `duplicate`), `amount`, `response_window_seconds` (1 to 604800), `outcome` (`auto`, `win`, `lose`) |
@@ -106,6 +112,17 @@ What differs per scheme (all simplified teaching values; Zanboxx never contacts 
 - **3-D Secure:** Visa Secure, Mastercard Identity Check, American Express SafeKey. ECI is 05/06/07 for Visa and Amex, 02/01/00 for Mastercard. The authentication value is called CAVV, AAV or AEVV.
 - **Decline codes:** payments and webhook events carry `scheme` and, on failures, `scheme_response` with the scheme's own code (Visa and Mastercard 05, 51, 54; Amex 100, 116, 101) and a retry hint.
 - **Failure script:** `"when": {"scheme": "amex"}` targets one scheme.
+
+## Clearing, settlement and payouts
+
+A successful card payment still has to be cleared and paid out. `POST /v1/settlements` collects everything not yet cleared up to the end of the given UTC day (Visa, Mastercard and Amex test cards only) and writes one batch:
+
+- **Records:** sales (purchases and captures), refunds, chargebacks and chargeback reversals (disputes you won). Failed, voided and authorization-only payments are not cleared. Each record is cleared once; later events go into the next batch. A cleared payment can no longer be voided (`SBX-4234`); refund it instead.
+- **Files:** one clearing file per scheme with records, a settlement report and a payout file. Layouts are made up for teaching and are **not** the real networks' formats: Visa-style fixed width (95-character detail records), Mastercard-style pipe-delimited, Amex-style record-typed CSV. Each has a header, detail records and a trailer with a count and a total you can check. The layouts are listed in the `layout` field of `GET /v1/settlements/{id}/files`.
+- **Fees:** a fictional schedule (`GET /v1/settlements/fees`): Visa 1.4% + 0.10, Mastercard 1.5% + 0.10, Amex 2.5% per sale, 15 per chargeback, nothing returned on refunds.
+- **Payouts:** net per currency = sales - refunds - chargebacks + reversals - fees, paid two days after the cutoff. A negative payout is money collected from you. The event `settlement.created` is sent when a batch closes.
+- **Reconciliation:** `POST /v1/settlements/{id}/reconcile` matches your ledger to the batch by transaction ID and reports `matched`, `amount_mismatch`, `currency_mismatch`, `missing_in_clearing`, `missing_in_ledger` and `duplicate_in_ledger`. Chargebacks come back separately as adjustments, since a ledger of sales will not contain them. CSV may use commas or semicolons.
+- Up to 10 batches and 500 records per batch are kept per account.
 
 ## Card on file and merchant-initiated payments (MIT)
 

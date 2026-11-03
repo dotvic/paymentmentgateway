@@ -174,7 +174,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#settle">Settlement</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -326,6 +326,22 @@ exactly like the list under "Test cards" below.</pre>
   </div>
   <div class="card" id="cofOut" style="margin-top:12px"><p class="note" style="margin:0">Store a card, then charge it. The result of each step shows here: the network transaction ID that links the payments, any warning, and the retry advice after a decline.</p></div>
   <div class="card tablewrap" id="agrList" style="margin-top:12px"></div>
+</section>
+
+<section class="block hidden" id="settle">
+  <h2>Settlement and reconciliation</h2>
+  <p class="sub">After a card payment succeeds, the money still has to travel. The merchant's bank sends the transactions to the card scheme (<strong>clearing</strong>), the scheme works out who owes whom (<strong>settlement</strong>), and the bank pays the merchant out minus fees, refunds and chargebacks (<strong>payout</strong>). The scheme files go between banks and schemes; a merchant usually sees only the bank's report. Here you close the day and get stand-in files: a clearing file per scheme, a settlement report and a payout file. The layouts are made up for teaching and are not the real networks' formats, and the fees are fictional.</p>
+  <div class="card">
+    <div class="row" style="grid-template-columns:minmax(0,1fr) auto auto;align-items:end">
+      <div><label for="stlDate">Clear everything up to the end of (UTC)</label><input id="stlDate" type="date"></div>
+      <div class="actions" style="margin:0"><button class="primary" id="stlClose">Close the day</button></div>
+      <div class="actions" style="margin:0"><button id="stlExport">Download transaction export</button></div>
+    </div>
+    <p class="err" id="stlErr" role="alert"></p>
+    <p class="note" id="stlFees" style="margin:0"></p>
+  </div>
+  <div class="card tablewrap" id="stlList" style="margin-top:12px"></div>
+  <div class="card hidden" id="stlDetail" style="margin-top:12px"></div>
 </section>
 
 <section class="block hidden" id="disputes">
@@ -533,6 +549,7 @@ function renderSession() {
   $("#dash").classList.toggle("hidden", !on);
   $("#disputes").classList.toggle("hidden", !on);
   $("#cof").classList.toggle("hidden", !on);
+  $("#settle").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
   $("#whForm").classList.toggle("hidden", !on);
   $("#whRefreshBox").classList.toggle("hidden", !on);
@@ -756,7 +773,7 @@ var refreshTimer = null;
 // Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
 function refreshAll() {
   if (!key || refreshTimer) return;
-  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); } }, 3000);
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); refreshSettlements(); } }, 3000);
 }
 
 // ---------- 3-D Secure lab ----------
@@ -1208,6 +1225,98 @@ $("#agrList").addEventListener("click", async function (e) {
   if (r.status === 200) cofOut('<p style="margin:0"><strong>Agreement ' + esc(r.body.id) + " cancelled.</strong> Further merchant-initiated payments on it are refused.</p>");
   refreshAgreements();
 });
+
+// ---------- settlement and reconciliation ----------
+var STLS = [], STL_OPEN = null, STL_FILE = null, STL_FEES = null;
+async function rawGet(path) {
+  var r = await fetch(path, { headers: { authorization: "Bearer " + key } });
+  return { status: r.status, text: await r.text() };
+}
+function saveText(name, text) {
+  var a = document.createElement("a"), url = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+}
+function payoutText(b) { return b.payouts.map(function (p) { return (p.amount < 0 ? "-" : "") + fmt(Math.abs(p.amount)) + " " + p.currency; }).join(", "); }
+async function refreshSettlements() {
+  if (!key) return;
+  var r = await api("GET", "/v1/settlements");
+  if (r.status !== 200) return;
+  STLS = r.body.data;
+  if (!$("#stlDate").value) $("#stlDate").value = new Date().toISOString().slice(0, 10);
+  if (!STL_FEES) { var fr = await api("GET", "/v1/settlements/fees"); if (fr.status === 200) { STL_FEES = fr.body; var f = STL_FEES; $("#stlFees").textContent = "Fictional fee schedule: Visa " + f.visa.percent + "% + " + fmt(f.visa.fixed) + ", Mastercard " + f.mastercard.percent + "% + " + fmt(f.mastercard.fixed) + ", American Express " + f.amex.percent + "% per sale; " + f.chargeback_fixed + " per chargeback. Fees are not returned on refunds."; } }
+  $("#stlList").innerHTML = STLS.length ? "<table><thead><tr><th>Batch</th><th>Up to</th><th>Records</th><th>Payout</th><th>Payout date</th><th></th></tr></thead><tbody>" + STLS.map(function (b) {
+    return '<tr><td class="mono">' + esc(b.id) + "</td><td>" + esc(b.cutoff) + "</td><td>" + b.record_count + "</td><td>" + esc(payoutText(b)) + "</td><td>" + esc(b.payout_date) + '</td><td><button class="small" data-stl="' + esc(b.id) + '">Open</button></td></tr>';
+  }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No batches yet. Send a few card payments with Visa, Mastercard or Amex test cards, then close the day.</p>';
+}
+var KIND_LABEL = { presentment: "Sale", refund: "Refund", chargeback: "Chargeback", chargeback_reversal: "Reversal" };
+async function openBatch(id) {
+  var r = await api("GET", "/v1/settlements/" + id);
+  if (r.status !== 200) { $("#stlErr").textContent = errMsg(r); return; }
+  var b = r.body; STL_OPEN = b; STL_FILE = null;
+  var h = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong class="mono">' + esc(b.id) + "</strong><span class=\"note\" style=\"margin:0\">cleared everything up to " + esc(b.cutoff) + " · " + b.record_count + " records</span></div>";
+  h += '<div class="tablewrap"><table><thead><tr><th>Scheme</th><th>Cur.</th><th>Sales</th><th>Refunds</th><th>Chargebacks</th><th>Reversals</th><th>Fees</th><th>Net</th></tr></thead><tbody>' + b.totals.map(function (t) {
+    var c = function (x) { return x.count ? fmt(x.amount) + " (" + x.count + ")" : "-"; };
+    return "<tr><td>" + esc(t.scheme) + "</td><td>" + esc(t.currency) + "</td><td>" + c(t.presentments) + "</td><td>" + c(t.refunds) + "</td><td>" + c(t.chargebacks) + "</td><td>" + c(t.chargeback_reversals) + "</td><td>" + fmt(t.fees) + "</td><td><strong>" + fmt(t.net) + "</strong></td></tr>";
+  }).join("") + "</tbody></table></div>";
+  h += '<p class="take" style="margin-top:10px"><strong>Payout:</strong> ' + b.payouts.map(function (p) { return (p.direction === "to_merchant" ? "paid to you " : "collected from you ") + fmt(Math.abs(p.amount)) + " " + p.currency; }).join("; ") + " on " + esc(b.payout_date) + ". Net = sales - refunds - chargebacks + reversals - fees, per scheme and currency.</p>";
+  h += '<h3 style="margin:14px 0 4px;font-size:16px">Files</h3><div class="tablewrap"><table><tbody>' + b.files.map(function (f) {
+    return '<tr><td class="mono">' + esc(f.name) + "</td><td>" + esc(f.kind + " · " + f.format) + '</td><td><button class="small" data-stl-view="' + esc(f.name) + '">Preview</button> <button class="small" data-stl-dl="' + esc(f.name) + '">Download</button></td></tr>';
+  }).join("") + '</tbody></table></div><div id="stlPreview"></div>';
+  h += '<h3 style="margin:14px 0 4px;font-size:16px">Reconcile your books</h3><p class="note" style="margin:0 0 6px">Paste your own ledger as CSV with the columns <span class="mono">transaction_id, amount, currency</span> and compare it with this batch. Sales and refunds are matched by transaction ID; chargebacks are listed separately because a ledger of sales will not contain them.</p>' +
+    '<textarea id="stlLedger" class="mono" rows="7" spellcheck="false" style="width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:var(--panel);font-size:13px" placeholder="transaction_id,amount,currency"></textarea>' +
+    '<div class="actions"><button class="primary" id="stlCheck">Check against this batch</button><button id="stlSample">Fill a sample ledger with mistakes</button></div><div id="stlResult"></div>';
+  var el = $("#stlDetail"); el.classList.remove("hidden"); el.innerHTML = h;
+}
+$("#stlList").addEventListener("click", function (e) { var b = e.target.closest("button[data-stl]"); if (b) openBatch(b.dataset.stl); });
+$("#stlDetail").addEventListener("click", async function (e) {
+  var v = e.target.closest("button[data-stl-view]"), d = e.target.closest("button[data-stl-dl]");
+  if ((v || d) && STL_OPEN) {
+    var name = (v || d).dataset.stlView || (v || d).dataset.stlDl, r = await rawGet("/v1/settlements/" + STL_OPEN.id + "/files/" + name);
+    if (r.status !== 200) { $("#stlErr").textContent = "Could not load the file."; return; }
+    if (d) { saveText(name, r.text); return; }
+    var f = STL_OPEN.files.filter(function (x) { return x.name === name; })[0], lines = r.text.split("\n");
+    $("#stlPreview").innerHTML = '<p class="note" style="margin:10px 0 4px"><strong>Layout:</strong></p><ul class="note" style="margin:0 0 6px 18px;padding:0">' + f.layout.map(function (l) { return "<li>" + esc(l) + "</li>"; }).join("") + '</ul><pre class="code mono" style="overflow:auto;white-space:pre">' + esc(lines.slice(0, 40).join("\n") + (lines.length > 40 ? "\n... (" + (lines.length - 40) + " more lines)" : "")) + "</pre>";
+    return;
+  }
+  if (e.target.id === "stlSample" && STL_OPEN) {
+    var rec = STL_OPEN.records.filter(function (x) { return x.kind === "presentment" || x.kind === "refund"; }), rows = ["transaction_id,amount,currency"];
+    rec.forEach(function (x, i) {
+      if (i === 1 && rec.length > 2) return;                                       // a sale your books never recorded
+      var amt = i === 0 && rec.length > 3 ? (x.amount + 1).toFixed(2) : x.amount.toFixed(2);   // a wrong amount
+      rows.push(x.payment_id + "," + amt + "," + x.currency);
+      if (i === 2) rows.push(x.payment_id + "," + amt + "," + x.currency);          // booked twice
+    });
+    rows.push("tx_0000dead,12.00,EUR");                                              // something that never reached the bank
+    $("#stlLedger").value = rows.join("\n"); return;
+  }
+  if (e.target.id === "stlCheck" && STL_OPEN) {
+    var r2_ = await api("POST", "/v1/settlements/" + STL_OPEN.id + "/reconcile", { csv: $("#stlLedger").value });
+    if (r2_.status !== 200) { $("#stlResult").innerHTML = '<p class="err">' + esc(errMsg(r2_)) + "</p>"; return; }
+    var o = r2_.body, S = o.summary, LBL = { matched: "Matched", amount_mismatch: "Amount differs", currency_mismatch: "Currency differs", missing_in_clearing: "Not cleared in this batch", missing_in_ledger: "Cleared, not in your ledger", duplicate_in_ledger: "Twice in your ledger" };
+    var h = '<p style="margin:10px 0 6px">' + Object.keys(LBL).filter(function (k) { return S[k]; }).map(function (k) { return '<span class="badge ' + (k === "matched" ? "success" : "failed") + '">' + S[k] + " " + esc(LBL[k].toLowerCase()) + "</span> "; }).join("") + (o.ok ? '<span class="badge success">all matched</span>' : "") + "</p>";
+    var bad_ = o.items.filter(function (i) { return i.status !== "matched"; });
+    if (bad_.length) h += '<div class="tablewrap"><table><thead><tr><th>Transaction</th><th>Result</th><th>Your ledger</th><th>Cleared</th><th>What to check</th></tr></thead><tbody>' + bad_.map(function (i) {
+      return '<tr><td class="mono">' + esc(i.transaction_id) + "</td><td>" + esc(LBL[i.status]) + "</td><td>" + (i.ledger_amount === null ? "-" : fmt(i.ledger_amount) + " " + esc(i.ledger_currency || "")) + "</td><td>" + (i.cleared_amount === null ? "-" : fmt(i.cleared_amount) + " " + esc(i.cleared_currency) + " (" + esc(KIND_LABEL[i.kind]) + ")") + '</td><td class="wrapcell">' + esc(i.hint) + "</td></tr>";
+    }).join("") + "</tbody></table></div>";
+    if (o.adjustments.length) h += '<p class="note" style="margin:10px 0 4px"><strong>Adjustments that are not sales:</strong></p><ul class="note" style="margin:0 0 6px 18px;padding:0">' + o.adjustments.map(function (a) { return "<li>" + esc(KIND_LABEL[a.kind] + " " + fmt(a.amount) + " " + a.currency + " on " + a.transaction_id + (a.reason_code ? " (reason " + a.reason_code + ")" : "") + ". " + a.hint) + "</li>"; }).join("") + "</ul>";
+    h += '<p class="note" style="margin:6px 0 0">' + esc(o.note) + "</p>";
+    $("#stlResult").innerHTML = h;
+  }
+});
+$("#stlClose").onclick = async function () {
+  $("#stlErr").textContent = "";
+  $("#stlClose").disabled = true;
+  try {
+    var r = await api("POST", "/v1/settlements", { date: $("#stlDate").value });
+    if (r.status === 201) { await refreshSettlements(); await openBatch(r.body.id); refreshAll(); }
+    else $("#stlErr").textContent = errMsg(r);
+  } finally { $("#stlClose").disabled = false; }
+};
+$("#stlExport").onclick = async function () {
+  $("#stlErr").textContent = "";
+  var d = $("#stlDate").value || new Date().toISOString().slice(0, 10), r = await rawGet("/v1/reports/transactions?date=" + d);
+  if (r.status === 200) saveText("zbx-transactions-" + d.replace(/-/g, "") + ".csv", r.text); else $("#stlErr").textContent = "Could not create the export.";
+};
 $("#method").onchange = onMethod;
 onMethod();
 Array.prototype.forEach.call(document.querySelectorAll(".base"), function (n) { n.textContent = location.origin; });
