@@ -213,6 +213,7 @@ function sweepDisputes(acc) {
 
 // ---------- clearing, settlement and payouts, see settlement.js ----------
 const STL = require("./settlement")({ bad, rnd });
+const MCP = require("./mcp")({ port: () => (server.address() || {}).port || PORT, allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((x) => x.trim()).filter(Boolean), version: "1.0.0" });
 const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d;
 function sendText(res, status, type, body, filename) {
   res.writeHead(status, { "content-type": type + "; charset=utf-8", "content-length": Buffer.byteLength(body), "x-content-type-options": "nosniff", ...(filename ? { "content-disposition": `attachment; filename="${filename}"` } : {}) });
@@ -747,6 +748,16 @@ async function route(req, res) {
     }
     save();
     return send(res, 200, { verified: true, email: t.email, trial_ends: trialEnds });
+  }
+
+  if (path === "/mcp") {
+    if (m !== "POST") return send(res, 405, { error: { code: "method_not_allowed", message: "Use POST with JSON-RPC 2.0 (MCP Streamable HTTP). There is no server-sent event stream." } }, { allow: "POST" });
+    if (!MCP.originOk(req)) throw bad(403, "forbidden_origin", "Origin not allowed. Set MCP_ALLOWED_ORIGINS for browser clients.");
+    const key = (req.headers.authorization || "").match(/^Bearer (sk_test_[a-f0-9]+)$/);
+    let macc;
+    try { macc = auth(req); } catch (e) { return send(res, 401, { error: { code: "unauthorized", message: "Send your Zanboxx API key as 'Authorization: Bearer sk_test_...'" } }, { "www-authenticate": 'Bearer realm="zanboxx"' }); }
+    if (limited(buckets, macc.id, PLANS[planOf(macc)].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down");
+    return MCP.handle(req, res, { readRaw, send, key: key[1] });
   }
 
   const acc = auth(req);

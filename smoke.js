@@ -872,6 +872,48 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/settlements")).body.data.length, 0);
     }
 
+    // ---- MCP server ----
+    {
+      const rpc = async (msg, hdrs = {}, k = key) => { const r = await fetch(BASE + "/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(k ? { authorization: `Bearer ${k}` } : {}), ...hdrs }, body: JSON.stringify(msg) }); const t = await r.text(); return { status: r.status, body: t ? JSON.parse(t) : null, headers: r.headers }; };
+      const tool = async (name, args) => { const r = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }); assert.equal(r.status, 200, name); const c = r.body.result; return { isError: c.isError, text: c.content[0].text, json: (() => { try { return JSON.parse(c.content[0].text); } catch { return null; } })() }; };
+      const noauth = await rpc({ jsonrpc: "2.0", id: 1, method: "ping" }, {}, null); assert.equal(noauth.status, 401); assert.ok(noauth.headers.get("www-authenticate").startsWith("Bearer"));
+      assert.equal((await fetch(BASE + "/mcp")).status, 405); assert.equal((await fetch(BASE + "/mcp", { method: "DELETE" })).status, 405);
+      assert.equal((await rpc({ jsonrpc: "2.0", id: 1, method: "ping" }, { origin: "https://evil.example" })).status, 403, "origin check");
+      const init = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "1" } } });
+      assert.equal(init.body.result.protocolVersion, "2025-03-26"); assert.equal(init.body.result.serverInfo.name, "zanboxx"); assert.ok(init.body.result.capabilities.tools);
+      assert.equal((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "1999-01-01" } })).body.result.protocolVersion, "2025-06-18");
+      const note = await rpc({ jsonrpc: "2.0", method: "notifications/initialized" }); assert.equal(note.status, 202); assert.equal(note.body, null);
+      const list = (await rpc({ jsonrpc: "2.0", id: 2, method: "tools/list" })).body.result.tools; assert.ok(list.length >= 20); assert.ok(list.every((t) => t.name && t.description && t.inputSchema.type === "object"));
+      assert.ok(!list.some((t) => /rotate|delete_account|billing/.test(t.name)), "dangerous tools not exposed");
+      assert.equal((await rpc({ jsonrpc: "2.0", id: 3, method: "nope" })).body.error.code, -32601);
+      assert.equal((await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "nope" } })).body.error.code, -32602);
+      assert.equal((await rpc([{ jsonrpc: "2.0", id: 1, method: "ping" }, { jsonrpc: "2.0", method: "notifications/initialized" }])).body.length, 1, "batch");
+      const bad1 = await fetch(BASE + "/mcp", { method: "POST", headers: { authorization: `Bearer ${key}` }, body: "{oops" }); assert.equal(bad1.status, 400);
+      const real = await tool("create_payment", { method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", card_number: "4242424242424242", card_cvv: "123" });
+      assert.ok(real.isError && /looks real/.test(real.text), "real card guard");
+      const pay = await tool("create_payment", { method: "card", transaction_type: "purchase", amount: 12.5, currency: "EUR", card_number: "4111111111111111", card_cvv: "123" });
+      assert.ok(!pay.isError); assert.equal(pay.json.transaction_state, "success");
+      assert.equal((await tool("get_payment", { transaction_id: pay.json.id })).json.id, pay.json.id);
+      assert.ok((await tool("list_payments", { limit: 5 })).json.data.length >= 1);
+      const missing = await tool("get_payment", {}); assert.ok(missing.isError && /Missing required/.test(missing.text));
+      assert.ok((await tool("get_payment", { transaction_id: "tx_ffffffffffffffff" })).isError, "API errors surface as isError");
+      assert.ok((await tool("get_payment", { transaction_id: pay.json.id, bogus: 1 })).isError, "unknown args");
+      const c3 = await tool("create_payment", { method: "card", transaction_type: "purchase", amount: 9, currency: "EUR", card_number: "4000000000003220", card_cvv: "123" });
+      assert.equal(c3.json.status.code, "SBX-2020");
+      assert.equal((await tool("complete_3ds_challenge", { transaction_id: c3.json.id, result: "approve" })).json.transaction_state, "success");
+      { const lg = await tool("get_3ds_log", { transaction_id: c3.json.id }); assert.ok(lg.text.includes("3-D Secure") && !lg.isError, lg.text.slice(0, 300)); }
+      const dsp = await tool("create_dispute", { transaction_id: pay.json.id, reason: "duplicate", outcome: "win" }); assert.equal(dsp.json.state, "needs_response");
+      assert.equal((await tool("submit_dispute_evidence", { dispute_id: dsp.json.id, evidence: { original_transaction_reference: "tx_1", explanation: "Two separate orders" } })).json.state, "under_review");
+      assert.equal((await tool("get_dispute", { dispute_id: dsp.json.id })).json.id, dsp.json.id); assert.ok((await tool("list_disputes", {})).json.data.length >= 1);
+      const stl = await tool("close_settlement_day", {}); assert.ok(!stl.isError, stl.text); assert.ok((await tool("get_settlement", { settlement_id: stl.json.id })).json.id === stl.json.id);
+      assert.ok((await tool("get_settlement", {})).json.data.length >= 1);
+      assert.ok((await tool("get_usage", {})).json); assert.ok((await tool("list_agreements", {})).json.data);
+      const cards = await tool("list_test_cards", { scheme: "amex" }); assert.ok(cards.json.data.length === 11 && cards.json.data.every((c) => c.scheme === "amex"));
+      assert.match((await tool("explain_status_code", { code: "SBX-4225" })).text, /refundable/); assert.match((await tool("explain_status_code", { code: "116" })).text, /Amex|American/);
+      assert.ok((await tool("get_failure_script", {})).json); assert.ok(!(await tool("clear_failure_script", {})).isError);
+      assert.ok((await tool("list_webhook_deliveries", {})).json.data);
+    }
+
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
   finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }

@@ -52,6 +52,7 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
+| `POST /mcp` | MCP server (JSON-RPC 2.0). See the MCP section. |
 | `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `initiator`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
 | `GET /v1/webhook/deliveries/{id}` | One delivery with the stored event body and every attempt (status, time taken, response snippet) |
 | `POST /v1/webhook/deliveries/{id}/replay` | Send a stored event again (same event id, fresh signature, header `X-DryRun-Replay: true`). Pro or trial |
@@ -150,6 +151,24 @@ needs_response --deadline passes--> lost
 - **Money:** while a dispute is open or lost, its amount counts against the refundable balance, and the payment can no longer be voided. If you win, the amount is released.
 - **Webhooks:** `dispute.created`, `dispute.updated` (evidence submitted), `dispute.won`, `dispute.lost`. The event `data` is the dispute. Review takes about 5 seconds (`DISPUTE_REVIEW_DELAY_MS`).
 - One dispute per payment, 50 per account. Real schemes also have retrieval requests, pre-arbitration and arbitration, which are not simulated.
+
+## MCP server (use Zanboxx from an AI assistant)
+
+`POST /mcp` speaks the Model Context Protocol (Streamable HTTP, JSON-RPC 2.0, stateless). An assistant can create test payments, finish 3-D Secure challenges, raise and answer disputes, set failure scripts, close settlement days and reconcile, using your own API key. Each tool calls the normal REST API, so limits, quotas and plan rules are the same.
+
+Connect (replace the key with your `sk_test_...` key):
+
+```
+# Claude Code
+claude mcp add --transport http zanboxx https://zanboxx.com/mcp --header "Authorization: Bearer sk_test_..."
+
+# Clients that only speak stdio (for example Claude Desktop), through mcp-remote
+npx mcp-remote https://zanboxx.com/mcp --header "Authorization: Bearer sk_test_..."
+```
+
+Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `reconcile_ledger`, `get_usage`, `list_test_cards`, `explain_status_code`.
+
+Safety: test cards only. `create_payment` refuses card numbers that look real. Key rotation, account deletion, billing and "delete all payments" are not exposed. Browser clients need their origin listed in `MCP_ALLOWED_ORIGINS` (comma separated); other clients send no Origin and work as is. There is no OAuth yet, so connectors that require it (the claude.ai connector screen) cannot connect for now.
 
 ## Webhooks
 
