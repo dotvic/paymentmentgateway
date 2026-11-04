@@ -143,6 +143,13 @@ function newNtid(scheme, rnd) {
   const n = SCHEMES[scheme].mit.ntid, bytes = require("crypto").randomBytes(n.length);
   return Array.from(bytes, (b) => n.chars[b % n.chars.length]).join("");
 }
+// Card type and issuing region decide the interchange fee. Real ones come from the issuer's BIN data. Here they follow
+// the card number (stable per number, so test runs repeat) unless the request sets card_type / card_region itself.
+const CARD_TYPES = ["consumer_debit", "consumer_credit", "commercial"], CARD_REGIONS = ["domestic", "eea", "international"];
+function cardProfile(pan) {
+  const h = require("crypto").createHash("sha256").update(String(pan)).digest();
+  return { card_type: CARD_TYPES[h[0] % 3], card_region: CARD_REGIONS[h[1] % 3] };
+}
 const responseFor = (scheme, outcome) => (SCHEMES[scheme] && SCHEMES[scheme].responses[outcome]) || null;
 
 // Test cards. The number decides the outcome. 3ds outcomes match the existing Visa 3DS test cards.
@@ -174,4 +181,4 @@ function publicProfiles() {
   }));
 }
 
-module.exports = { SCHEMES, TEST_CARDS, detect, luhn, check, eciFor, tdsFor, responseFor, mitAdviceFor, newNtid, publicProfiles };
+module.exports = { CARD_TYPES, CARD_REGIONS, cardProfile, SCHEMES, TEST_CARDS, detect, luhn, check, eciFor, tdsFor, responseFor, mitAdviceFor, newNtid, publicProfiles };

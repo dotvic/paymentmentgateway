@@ -1259,6 +1259,7 @@ async function openBatch(id) {
     return "<tr><td>" + esc(t.scheme) + "</td><td>" + esc(t.currency) + "</td><td>" + c(t.presentments) + "</td><td>" + c(t.refunds) + "</td><td>" + c(t.chargebacks) + "</td><td>" + c(t.chargeback_reversals) + "</td><td>" + fmt(t.fees) + "</td><td><strong>" + fmt(t.net) + "</strong></td></tr>";
   }).join("") + "</tbody></table></div>";
   h += '<p class="take" style="margin-top:10px"><strong>Payout:</strong> ' + b.payouts.map(function (p) { return (p.direction === "to_merchant" ? "paid to you " : "collected from you ") + fmt(Math.abs(p.amount)) + " " + p.currency; }).join("; ") + " on " + esc(b.payout_date) + ". Net = sales - refunds - chargebacks + reversals - fees, per scheme and currency.</p>";
+  h += '<h3 style="margin:14px 0 4px;font-size:16px">Where the fee goes (interchange report)</h3><div id="stlIc"><p class="note" style="margin:0">Loading...</p></div>';
   h += '<h3 style="margin:14px 0 4px;font-size:16px">Files</h3><div class="tablewrap"><table><tbody>' + b.files.map(function (f) {
     return '<tr><td class="mono">' + esc(f.name) + "</td><td>" + esc(f.kind + " · " + f.format) + '</td><td><button class="small" data-stl-view="' + esc(f.name) + '">Preview</button> <button class="small" data-stl-dl="' + esc(f.name) + '">Download</button></td></tr>';
   }).join("") + '</tbody></table></div><div id="stlPreview"></div>';
@@ -1266,6 +1267,23 @@ async function openBatch(id) {
     '<textarea id="stlLedger" class="mono" rows="7" spellcheck="false" style="width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:var(--panel);font-size:13px" placeholder="transaction_id,amount,currency"></textarea>' +
     '<div class="actions"><button class="primary" id="stlCheck">Check against this batch</button><button id="stlSample">Fill a sample ledger with mistakes</button></div><div id="stlResult"></div>';
   var el = $("#stlDetail"); el.classList.remove("hidden"); el.innerHTML = h;
+  renderInterchange(id);
+}
+var TYPE_LABEL = { consumer_debit: "Consumer debit", consumer_credit: "Consumer credit", commercial: "Commercial" }, REGION_LABEL = { domestic: "Domestic", eea: "EEA", international: "International" };
+async function renderInterchange(id) {
+  var r = await api("GET", "/v1/settlements/" + id + "/interchange"), box = $("#stlIc");
+  if (!box || !STL_OPEN || STL_OPEN.id !== id) return;
+  if (r.status !== 200) { box.innerHTML = '<p class="err">' + esc(errMsg(r)) + "</p>"; return; }
+  var o = r.body;
+  if (!o.groups.length) { box.innerHTML = '<p class="note" style="margin:0">This batch has no sales, so there are no fees to split.</p>'; return; }
+  var h = '<p class="note" style="margin:0 0 6px">A card fee is not one price. Part goes to the cardholder\'s bank (<strong>interchange</strong>), part to the card network (<strong>scheme fee</strong>), and the rest is your acquirer\'s <strong>margin</strong>. Amex charges one rate, so it is not split. Rates are fictional.</p>';
+  h += '<div class="tablewrap"><table><thead><tr><th>Scheme</th><th>Card</th><th>Region</th><th>Sales</th><th>Volume</th><th>Interchange</th><th>Scheme fee</th><th>Acquirer margin</th><th>You paid (blended)</th><th>With interchange++</th></tr></thead><tbody>' + o.groups.map(function (g) {
+    return "<tr><td>" + esc(g.scheme) + "</td><td>" + esc(TYPE_LABEL[g.card_type] || g.card_type) + "</td><td>" + esc(REGION_LABEL[g.card_region] || g.card_region) + "</td><td>" + g.count + "</td><td>" + fmt(g.volume) + " " + esc(g.currency) + "</td><td>" + (g.scheme === "amex" ? "-" : fmt(g.interchange)) + "</td><td>" + (g.scheme === "amex" ? "-" : fmt(g.scheme_fees)) + "</td><td>" + fmt(g.acquirer_margin) + "</td><td>" + fmt(g.blended_total) + "</td><td>" + fmt(g.interchange_plus_total) + "</td></tr>";
+  }).join("") + "</tbody></table></div>";
+  h += o.totals.map(function (t) {
+    var d = t.difference; return '<p class="take" style="margin-top:8px"><strong>' + esc(t.currency) + ":</strong> blended pricing cost " + fmt(t.blended_total) + " (" + t.blended_effective_rate_percent + "% of volume). Interchange++ would have cost " + fmt(t.interchange_plus_total) + " (" + t.interchange_plus_effective_rate_percent + "%). " + (d > 0 ? "Blended cost you " + fmt(d) + " more on this mix of cards." : d < 0 ? "Blended cost you " + fmt(-d) + " less on this mix of cards." : "No difference.") + "</p>";
+  }).join("");
+  box.innerHTML = h;
 }
 $("#stlList").addEventListener("click", function (e) { var b = e.target.closest("button[data-stl]"); if (b) openBatch(b.dataset.stl); });
 $("#stlDetail").addEventListener("click", async function (e) {

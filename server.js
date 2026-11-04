@@ -263,7 +263,7 @@ function emitAgreement(acc, a, type) { deliver(acc, { id: "evt_" + rnd(8), type,
 function makeAgreement(acc, p) {
   const st = p._store, au = p.authentication || null;
   const a = {
-    id: "agr_" + rnd(8), state: "active", type: st.type, scheme: p.scheme || null, card_last4: p.card_last4 || null, currency: p.currency,
+    id: "agr_" + rnd(8), state: "active", type: st.type, scheme: p.scheme || null, card_last4: p.card_last4 || null, card_type: p.card_type || null, card_region: p.card_region || null, currency: p.currency,
     created_at: new Date().toISOString(), initial_payment_id: p.id, network_transaction_id: p.network_transaction_id || null,
     sca: { performed: !!au && au.trans_status === "Y", trans_status: au ? au.trans_status : null, eci: au ? au.eci : null },
     instalments: st.type === "instalment" ? { total: st.instalments, used: 1 } : null, charges: 0, last_charge_at: null, last_result: null, cancelled_at: null,
@@ -433,6 +433,11 @@ function createPaymentInner(acc, b, meta) {
   if (parent) { const e = checkParent(parent, type, amount); if (e) throw bad(422, e[0], e[1]); }
 
   const card = String(b.card_number || "").replace(/\s/g, "");
+  for (const [k, list] of [["card_type", SCH.CARD_TYPES], ["card_region", SCH.CARD_REGIONS]]) {
+    if (b[k] === undefined) continue;
+    if (!list.includes(b[k])) throw bad(400, "invalid_request", `${k} must be one of ${list.join(", ")}`);
+    if (mit || parent || b.method !== "card") throw bad(400, "invalid_request", `${k} can only be set on a customer-initiated card payment with a card_number`);
+  }
   let scheme = mit ? agr.scheme : null;
   if (b.method === "card" && !parent && !mit) {
     if (scenario === "auto" || card) {
@@ -463,12 +468,13 @@ function createPaymentInner(acc, b, meta) {
   if (mit) {
     p.initiator = "merchant"; p.agreement_id = agr.id; p.mit_type = mitType; p.card_last4 = agr.card_last4;
     if (agr.scheme) p.scheme = agr.scheme;
+    if (agr.card_type) { p.card_type = agr.card_type; p.card_region = agr.card_region; }
     if (agr.network_transaction_id) p.original_network_transaction_id = agr.network_transaction_id;
     const w = mitWarnings(agr, currency); if (w.length) p.warnings = w;
   } else if (b.method === "card" && !parent) p.initiator = "customer";
   if (store) p._store = store;
-  if (b.method === "card" && !parent && !mit && card) { p.card_last4 = card.slice(-4); if (scheme) p.scheme = scheme; }
-  else if (parent && parent.scheme) p.scheme = parent.scheme;
+  if (b.method === "card" && !parent && !mit && card) { p.card_last4 = card.slice(-4); if (scheme) p.scheme = scheme; Object.assign(p, SCH.cardProfile(card)); if (b.card_type) p.card_type = b.card_type; if (b.card_region) p.card_region = b.card_region; }
+  else if (parent && parent.scheme) { p.scheme = parent.scheme; if (parent.card_type) { p.card_type = parent.card_type; p.card_region = parent.card_region; } }
   if (hit) p.script_rule = hit.n;
   if (hook) p._hook = hook;
   if (type === "authorization") p.captured_amount = 0;
@@ -801,12 +807,13 @@ async function route(req, res) {
       return send(res, 201, { ...STL.summary(st), files: STL.listFiles(st) });
     }
     if (m === "GET" && path === "/v1/settlements") return send(res, 200, { data: sts.map(STL.summary) });
-    if ((mt = path.match(/^\/v1\/settlements\/(stl_[a-f0-9]+)(?:\/(reconcile|files)(?:\/([A-Za-z0-9._-]+))?)?$/))) {
+    if ((mt = path.match(/^\/v1\/settlements\/(stl_[a-f0-9]+)(?:\/(reconcile|files|interchange)(?:\/([A-Za-z0-9._-]+))?)?$/))) {
       const st = sts.find((x) => x.id === mt[1]);
       if (!st) throw bad(404, "not_found", "Settlement not found");
       if (m === "GET" && !mt[2]) return send(res, 200, { ...STL.summary(st), files: STL.listFiles(st), records: st.records });
       if (m === "GET" && mt[2] === "files" && !mt[3]) return send(res, 200, { data: STL.listFiles(st) });
       if (m === "GET" && mt[2] === "files") { const f = STL.build(st, mt[3]); if (!f) throw bad(404, "not_found", "File not found. List the files at /v1/settlements/{id}/files"); return sendText(res, 200, f.type, f.body, mt[3]); }
+      if (m === "GET" && mt[2] === "interchange" && !mt[3]) return send(res, 200, STL.interchange(st));
       if (m === "POST" && mt[2] === "reconcile") return send(res, 200, STL.reconcile(st, await readBody(req)));
     }
     throw bad(404, "not_found", "Unknown endpoint");

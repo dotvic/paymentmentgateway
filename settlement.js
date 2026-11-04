@@ -17,6 +17,18 @@ const FEES = {
   chargeback_fixed: 15,
   note: "A fictional fee schedule for teaching. Fees are charged on each presentment and each chargeback and are not returned on refunds.",
 };
+// Fictional cost build-up for the interchange report. Real interchange depends on the issuer, card product, region and
+// regulation; these numbers only show how a fee splits into issuer, network and acquirer parts.
+const INTERCHANGE = {
+  percent: {
+    domestic: { consumer_debit: 0.2, consumer_credit: 0.3, commercial: 0.9 },
+    eea: { consumer_debit: 0.2, consumer_credit: 0.3, commercial: 1.0 },
+    international: { consumer_debit: 1.15, consumer_credit: 1.5, commercial: 1.9 },
+  },
+  scheme_fee: { visa: { percent: 0.13, fixed: 0.02 }, mastercard: { percent: 0.14, fixed: 0.02 } },
+  acquirer_markup: { percent: 0.25, fixed: 0.05 },
+  note: "A fictional teaching schedule. Visa and Mastercard are four-party schemes: the fee splits into interchange (paid to the card issuer), a scheme fee (paid to the network) and the acquirer's markup. Amex is a three-party scheme: it charges one discount rate, so there is nothing to unbundle.",
+};
 const SCHEME_ORDER = ["visa", "mastercard", "amex"];
 const KINDS = ["presentment", "refund", "chargeback", "chargeback_reversal"];
 const MAX_BATCHES = 10, MAX_RECORDS = 500, PAYOUT_DAYS = 2;
@@ -39,7 +51,7 @@ module.exports = function createSettlement({ bad, rnd }) {
       const isPay = p.transaction_type === "purchase" || p.transaction_type === "capture-authorization";
       if ((isPay && !p.voided) || p.transaction_type === "refund") {
         ev.push({ kind: isPay ? "presentment" : "refund", scheme: p.scheme, payment_id: p.id, dispute_id: null, agreement_id: p.agreement_id || null, mit: p.initiator === "merchant",
-          ntid: p.network_transaction_id || null, amount: p.amount, currency: p.currency, at: p.created_at, reason_code: "", card_last4: p.card_last4 || "", flag: [p, "settled_in"] });
+          ntid: p.network_transaction_id || null, amount: p.amount, currency: p.currency, at: p.created_at, reason_code: "", card_last4: p.card_last4 || "", card_type: p.card_type || null, card_region: p.card_region || null, flag: [p, "settled_in"] });
       }
     }
     for (const d of acc.disputes || []) {
@@ -92,6 +104,38 @@ module.exports = function createSettlement({ bad, rnd }) {
   }
   const summary = (b) => { const { records, ...rest } = b; return rest; };
 
+  // Splits the fees of a batch into interchange, scheme fee and acquirer margin, and compares the blended price you paid
+  // with what interchange++ pricing (cost plus a fixed markup) would have cost. Only presentments carry fees here.
+  function interchange(b) {
+    const m = new Map();
+    for (const r of b.records) {
+      if (r.kind !== "presentment") continue;
+      const type = r.card_type || "consumer_credit", region = r.card_region || "domestic", key = [r.scheme, type, region, r.currency].join("/");
+      if (!m.has(key)) m.set(key, { scheme: r.scheme, card_type: type, card_region: region, currency: r.currency, count: 0, volume: 0, ic: 0, sf: 0, mk: 0, blended: 0 });
+      const g = m.get(key), amt = cents(r.amount);
+      g.count++; g.volume += amt; g.blended += cents(r.fee);
+      if (r.scheme !== "amex") {
+        const sf = INTERCHANGE.scheme_fee[r.scheme], mk = INTERCHANGE.acquirer_markup;
+        g.ic += amt * INTERCHANGE.percent[region][type] / 100; g.sf += amt * sf.percent / 100 + sf.fixed * 100; g.mk += amt * mk.percent / 100 + mk.fixed * 100;
+      }
+    }
+    const groups = [...m.values()].sort((a, b) => SCHEME_ORDER.indexOf(a.scheme) - SCHEME_ORDER.indexOf(b.scheme) || (a.card_type + a.card_region < b.card_type + b.card_region ? -1 : 1)).map((g) => {
+      const three = g.scheme === "amex", ic = Math.round(g.ic), sf = Math.round(g.sf), mk = Math.round(g.mk), ipp = three ? g.blended : ic + sf + mk;
+      return { scheme: g.scheme, card_type: g.card_type, card_region: g.card_region, currency: g.currency, count: g.count, volume: Number(money(g.volume)),
+        interchange: Number(money(three ? 0 : ic)), scheme_fees: Number(money(three ? 0 : sf)), acquirer_margin: Number(money(three ? g.blended : g.blended - ic - sf)),
+        blended_total: Number(money(g.blended)), interchange_plus_total: Number(money(ipp)), difference: Number(money(g.blended - ipp)), ...(three ? { note: "Amex discount rate: one fee, not unbundled" } : {}) };
+    });
+    const tm = new Map();
+    for (const g of groups) {
+      if (!tm.has(g.currency)) tm.set(g.currency, { currency: g.currency, volume: 0, blended_total: 0, interchange_plus_total: 0 });
+      const t = tm.get(g.currency); t.volume += cents(g.volume); t.blended_total += cents(g.blended_total); t.interchange_plus_total += cents(g.interchange_plus_total);
+    }
+    const totals = [...tm.values()].sort((a, c) => (a.currency < c.currency ? -1 : 1)).map((t) => ({ currency: t.currency, volume: Number(money(t.volume)), blended_total: Number(money(t.blended_total)), interchange_plus_total: Number(money(t.interchange_plus_total)),
+      difference: Number(money(t.blended_total - t.interchange_plus_total)), blended_effective_rate_percent: t.volume ? Number((t.blended_total / t.volume * 100).toFixed(3)) : 0, interchange_plus_effective_rate_percent: t.volume ? Number((t.interchange_plus_total / t.volume * 100).toFixed(3)) : 0 }));
+    return { batch_id: b.id, settlement_date: b.cutoff, groups, totals, schedule: INTERCHANGE,
+      how_to_read: "blended_total is what the settlement charged you. interchange_plus_total is what you would pay if each cost were passed through and only a fixed markup were added. A positive difference means blended pricing cost you more on that mix of cards; a negative one means it cost less. acquirer_margin is what is left of the blended fee after interchange and the scheme fee." };
+  }
+
   // ---------- files ----------
   const KIND2 = { presentment: "PS", refund: "RF", chargeback: "CB", chargeback_reversal: "CR" };
   const pad = (s, n) => String(s == null ? "" : s).padEnd(n).slice(0, n);
@@ -109,12 +153,13 @@ module.exports = function createSettlement({ bad, rnd }) {
   const fname = (b, scheme) => `zbx-${scheme}-clearing-${ymd(b.cutoff)}.${LAYOUTS[scheme].ext}`;
   const names = (b) => ({
     clearing: SCHEME_ORDER.filter((s) => b.records.some((r) => r.scheme === s)).map((s) => ({ name: fname(b, s), scheme: s, kind: "clearing", format: LAYOUTS[s].format, layout: LAYOUTS[s].spec })),
-    settlement: `zbx-settlement-${ymd(b.cutoff)}.csv`, payout: `zbx-payout-${ymd(b.cutoff)}.csv`,
+    settlement: `zbx-settlement-${ymd(b.cutoff)}.csv`, interchange: `zbx-interchange-${ymd(b.cutoff)}.csv`, payout: `zbx-payout-${ymd(b.cutoff)}.csv`,
   });
   function listFiles(b) {
     const n = names(b);
     return [...n.clearing.map((f) => ({ ...f, records: b.records.filter((r) => r.scheme === f.scheme).length })),
       { name: n.settlement, kind: "settlement report", format: "CSV", layout: ["One row per scheme and currency: counts and amounts of presentments, refunds, chargebacks and reversals, fees and net"] },
+      { name: n.interchange, kind: "interchange report", format: "CSV", layout: ["One row per scheme, card type, region and currency: volume, interchange, scheme fee, acquirer margin, what you paid (blended) and what interchange++ pricing would cost"] },
       { name: n.payout, kind: "payout", format: "CSV", layout: ["One row per currency: the amount paid out (or collected) and the payout date"] }];
   }
   function build(b, name) {
@@ -132,6 +177,11 @@ module.exports = function createSettlement({ bad, rnd }) {
     if (name === n.settlement) {
       const rows = [csvLine(["batch_id", "settlement_date", "scheme", "currency", "presentments_count", "presentments_amount", "refunds_count", "refunds_amount", "chargebacks_count", "chargebacks_amount", "reversals_count", "reversals_amount", "fees", "net"])];
       for (const t of b.totals) rows.push(csvLine([b.id, b.cutoff, t.scheme, t.currency, t.presentments.count, t.presentments.amount.toFixed(2), t.refunds.count, t.refunds.amount.toFixed(2), t.chargebacks.count, t.chargebacks.amount.toFixed(2), t.chargeback_reversals.count, t.chargeback_reversals.amount.toFixed(2), t.fees.toFixed(2), t.net.toFixed(2)]));
+      return { type: "text/csv", body: rows.join("\n") + "\n" };
+    }
+    if (name === n.interchange) {
+      const rep = interchange(b), rows = [csvLine(["batch_id", "settlement_date", "scheme", "card_type", "card_region", "currency", "presentments", "volume", "interchange", "scheme_fees", "acquirer_margin", "blended_total", "interchange_plus_total", "difference"])];
+      for (const g of rep.groups) rows.push(csvLine([b.id, b.cutoff, g.scheme, g.card_type, g.card_region, g.currency, g.count, g.volume.toFixed(2), g.interchange.toFixed(2), g.scheme_fees.toFixed(2), g.acquirer_margin.toFixed(2), g.blended_total.toFixed(2), g.interchange_plus_total.toFixed(2), g.difference.toFixed(2)]));
       return { type: "text/csv", body: rows.join("\n") + "\n" };
     }
     if (name === n.payout) {
@@ -193,6 +243,6 @@ module.exports = function createSettlement({ bad, rnd }) {
     return rows.join("\n") + "\n";
   }
 
-  return { FEES, collect, createBatch, summary, listFiles, build, reconcile, transactionsCsv };
+  return { FEES, INTERCHANGE, interchange, collect, createBatch, summary, listFiles, build, reconcile, transactionsCsv };
 };
 module.exports.FEES = FEES;

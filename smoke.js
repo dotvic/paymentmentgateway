@@ -829,7 +829,21 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
 
       // files
       const fl = (await api("GET", `/v1/settlements/${st.body.id}/files`)).body.data; const ymdS = b1.cutoff.replace(/-/g, "");
-      assert.deepEqual(fl.map((f) => f.name), [`zbx-visa-clearing-${ymdS}.dat`, `zbx-mastercard-clearing-${ymdS}.txt`, `zbx-amex-clearing-${ymdS}.csv`, `zbx-settlement-${ymdS}.csv`, `zbx-payout-${ymdS}.csv`]);
+      assert.deepEqual(fl.map((f) => f.name), [`zbx-visa-clearing-${ymdS}.dat`, `zbx-mastercard-clearing-${ymdS}.txt`, `zbx-amex-clearing-${ymdS}.csv`, `zbx-settlement-${ymdS}.csv`, `zbx-interchange-${ymdS}.csv`, `zbx-payout-${ymdS}.csv`]);
+
+      // interchange report: fee split by scheme, card type and region
+      const ic = (await api("GET", `/v1/settlements/${st.body.id}/interchange`)).body;
+      assert.equal(ic.batch_id, st.body.id); assert.ok(ic.groups.length >= 3);
+      for (const g of ic.groups) {
+        assert.ok(["consumer_debit", "consumer_credit", "commercial"].includes(g.card_type) && ["domestic", "eea", "international"].includes(g.card_region));
+        if (g.scheme === "amex") { assert.equal(g.interchange, 0); assert.equal(g.scheme_fees, 0); assert.equal(g.acquirer_margin, g.blended_total); assert.equal(g.difference, 0); }
+        else assert.ok(Math.abs(g.interchange + g.scheme_fees + g.acquirer_margin - g.blended_total) < 0.011, "parts add up to the blended fee");
+      }
+      const presFees = b1.totals.reduce((a, x) => a + x.fees, 0), icFees = ic.totals.reduce((a, x) => a + x.blended_total, 0);
+      assert.ok(icFees > 0 && icFees <= presFees + 0.011, "report covers presentment fees");
+      assert.ok(ic.totals.every((x) => x.blended_effective_rate_percent > 0) && ic.schedule.percent.domestic.consumer_debit === 0.2);
+      const icCsv = await raw(`/v1/settlements/${st.body.id}/files/zbx-interchange-${ymdS}.csv`); assert.equal(icCsv.status, 200); assert.ok(icCsv.text.split("\n")[0].startsWith("batch_id,settlement_date,scheme,card_type"));
+      assert.equal((await api("GET", "/v1/settlements/stl_00000000/interchange")).status, 404);
       const vf = await raw(`/v1/settlements/${st.body.id}/files/${fl[0].name}`); assert.equal(vf.status, 200); assert.ok(vf.type.startsWith("text/plain"));
       const vl = vf.text.trimEnd().split("\n"); assert.equal(vl[0], "H" + st.body.id.padEnd(12) + ymdS); assert.equal(vl.length, 1 + 7 + 1);
       const dl = vl.slice(1, -1); assert.ok(dl.every((l) => l.length === 95 && l[0] === "D"), "detail lines are 95 characters");
@@ -842,7 +856,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal(al[0], `HEADER,${st.body.id},${b1.cutoff},AMEX`); assert.ok(al[1].startsWith("record_type,kind,transaction_id")); assert.equal(al.length, 5); assert.equal(al.at(-1), "TRAILER,2,100.00");
       const sr = (await raw(`/v1/settlements/${st.body.id}/files/${fl[3].name}`)).text.trimEnd().split("\n"); assert.equal(sr.length, 4);
       assert.equal(sr[1], `${st.body.id},${b1.cutoff},visa,EUR,4,165.00,1,20.00,1,100.00,1,100.00,17.71,127.29`); assert.equal(sr[2].split(",").at(-1), "-16.30");
-      const pf = (await raw(`/v1/settlements/${st.body.id}/files/${fl[4].name}`)).text.trimEnd().split("\n"); assert.equal(pf.length, 3); assert.ok(pf[1].endsWith(`,EUR,224.79,to_merchant,${b1.payout_date}`));
+      const pf = (await raw(`/v1/settlements/${st.body.id}/files/${fl[5].name}`)).text.trimEnd().split("\n"); assert.equal(pf.length, 3); assert.ok(pf[1].endsWith(`,EUR,224.79,to_merchant,${b1.payout_date}`));
       assert.equal((await raw(`/v1/settlements/${st.body.id}/files/nope.csv`)).status, 404); assert.equal((await api("GET", "/v1/settlements/stl_ffffffff")).status, 404);
 
       // reconciliation: a ledger with deliberate mistakes
@@ -870,6 +884,18 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.ok(el.some((l) => l.includes(",paypal,"))); assert.ok(el.some((l) => l.startsWith(v1.id) && l.endsWith(`,${dA.id},won,${st.body.id}`)), "dispute and settlement show on the row");
       assert.equal((await raw("/v1/reports/transactions?date=2001-01-01")).text.trimEnd().split("\n").length, 1); assert.equal((await raw("/v1/reports/transactions?date=bogus")).status, 400);
       assert.equal((await api("DELETE", "/v1/payments")).status, 200); assert.equal((await api("GET", "/v1/settlements")).body.data.length, 0);
+    }
+
+    // ---- card type and region for the interchange report ----
+    {
+      const cA = (await api("POST", "/v1/payments", { request_id: "ct-" + Math.random(), method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", card_number: "4111111111111111", card_cvv: "123", card_type: "commercial", card_region: "international" })).body;
+      assert.equal(cA.card_type, "commercial"); assert.equal(cA.card_region, "international");
+      const cB = (await api("POST", "/v1/payments", { request_id: "ct2-" + Math.random(), method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", card_number: "4111111111111111", card_cvv: "123" })).body;
+      const cB2 = (await api("POST", "/v1/payments", { request_id: "ct3-" + Math.random(), method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", card_number: "4111111111111111", card_cvv: "123" })).body;
+      assert.equal(cB.card_type, cB2.card_type, "same number, same profile");
+      assert.equal((await api("POST", "/v1/payments", { request_id: "ct4-" + Math.random(), method: "card", transaction_type: "purchase", amount: 5, currency: "EUR", card_number: "4111111111111111", card_cvv: "123", card_type: "gold" })).status, 400);
+      assert.equal((await api("POST", "/v1/payments", { request_id: "ct5-" + Math.random(), method: "card", transaction_type: "refund", amount: 1, currency: "EUR", parent_transaction_id: cA.id, card_type: "commercial" })).status, 400);
+      assert.equal((await api("POST", "/v1/payments", { request_id: "ct6-" + Math.random(), method: "card", transaction_type: "refund", amount: 1, currency: "EUR", parent_transaction_id: cA.id })).body.card_type, "commercial", "refund keeps parent's card type");
     }
 
     // ---- MCP server ----

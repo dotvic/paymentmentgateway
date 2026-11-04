@@ -125,6 +125,12 @@ A successful card payment still has to be cleared and paid out. `POST /v1/settle
 - **Reconciliation:** `POST /v1/settlements/{id}/reconcile` matches your ledger to the batch by transaction ID and reports `matched`, `amount_mismatch`, `currency_mismatch`, `missing_in_clearing`, `missing_in_ledger` and `duplicate_in_ledger`. Chargebacks come back separately as adjustments, since a ledger of sales will not contain them. CSV may use commas or semicolons.
 - Up to 10 batches and 500 records per batch are kept per account.
 
+### Interchange fee report
+
+`GET /v1/settlements/{id}/interchange` (and the file `zbx-interchange-YYYYMMDD.csv`) splits the fees of a batch into **interchange** (paid to the cardholder's bank), the **scheme fee** (paid to the network) and the **acquirer margin** (what is left of the blended fee you were charged). Rows are grouped by scheme, card type (consumer debit, consumer credit, commercial), issuing region (domestic, EEA, international) and currency. The report also prices the same sales with **interchange++** (each cost passed through plus a fixed markup) so you can see which pricing model is cheaper for your card mix. Amex is a three-party scheme with one discount rate, so it is shown but not split. All rates are fictional (`schedule` in the response).
+
+Card type and region follow the card number (same number, same profile) unless you set `card_type` and/or `card_region` on a customer-initiated card payment. Refunds and card-on-file payments inherit them.
+
 ## Card on file and merchant-initiated payments (MIT)
 
 Subscriptions, instalments and top-ups charge a stored card without the customer present.
@@ -166,7 +172,7 @@ claude mcp add --transport http zanboxx https://zanboxx.com/mcp --header "Author
 npx mcp-remote https://zanboxx.com/mcp --header "Authorization: Bearer sk_test_..."
 ```
 
-Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `reconcile_ledger`, `get_usage`, `list_test_cards`, `explain_status_code`.
+Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `get_interchange_report`, `reconcile_ledger`, `get_usage`, `list_test_cards`, `explain_status_code`.
 
 Safety: test cards only. `create_payment` refuses card numbers that look real. Key rotation, account deletion, billing and "delete all payments" are not exposed. Browser clients need their origin listed in `MCP_ALLOWED_ORIGINS` (comma separated); other clients send no Origin and work as is. There is no OAuth yet, so connectors that require it (the claude.ai connector screen) cannot connect for now.
 
