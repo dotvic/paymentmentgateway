@@ -174,7 +174,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#settle">Settlement</a><a href="#tutor">Tutor</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#settle">Settlement</a><a href="#cplab">POS &amp; ATM</a><a href="#tutor">Tutor</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -342,6 +342,37 @@ exactly like the list under "Test cards" below.</pre>
   </div>
   <div class="card tablewrap" id="stlList" style="margin-top:12px"></div>
   <div class="card hidden" id="stlDetail" style="margin-top:12px"></div>
+</section>
+
+<section class="block hidden" id="cplab">
+  <h2>POS and ATM labs: chip and stripe</h2>
+  <p class="sub">Play the card, the terminal and the issuer. The <strong>EMV lab</strong> builds a real application cryptogram (ARQC) with made-up test keys and lets the issuer check it, so you can break it on purpose. The <strong>magstripe lab</strong> shows track data, service codes, CVV1, fallback and PIN blocks. Test cards only; the test PIN is 1234.</p>
+  <div class="card">
+    <div class="actions" role="tablist" aria-label="Lab"><button id="cpTabEmv" class="primary" role="tab" aria-selected="true">EMV lab (chip, contactless)</button><button id="cpTabMag" role="tab" aria-selected="false">Magstripe lab (stripe, fallback, manual)</button></div>
+    <fieldset id="cpForm" style="margin-top:10px">
+      <div class="grid2">
+        <div><label for="cpChannel">Where</label><select id="cpChannel"><option value="pos">POS terminal</option><option value="atm">ATM</option></select></div>
+        <div><label for="cpType">Transaction</label><select id="cpType"></select></div>
+        <div><label for="cpEntry">How the card is read</label><select id="cpEntry"></select></div>
+        <div><label for="cpCard">Test card</label><select id="cpCard"></select></div>
+        <div id="cpAmtBox"><label for="cpAmt">Amount (EUR)</label><input id="cpAmt" type="number" min="0.01" step="0.01" value="12.50"></div>
+        <div id="cpCbBox" class="hidden"><label for="cpCb">Cashback (EUR)</label><input id="cpCb" type="number" min="0.01" step="0.01" value="20"></div>
+        <div id="cpPinBox"><label for="cpPin">PIN</label><input id="cpPin" inputmode="numeric" autocomplete="off" value="1234" maxlength="12"></div>
+        <div id="cpNewPinBox" class="hidden"><label for="cpNewPin">New PIN</label><input id="cpNewPin" inputmode="numeric" autocomplete="off" value="7391" maxlength="12"></div>
+        <div id="cpParentBox" class="hidden"><label for="cpParent">Original transaction</label><select id="cpParent"></select></div>
+        <div id="cpTamperBox"><label for="cpTamper" id="cpTamperLbl">Break it on purpose</label><select id="cpTamper"></select></div>
+      </div>
+      <div id="cpMagBox" class="hidden" style="margin-top:10px">
+        <label for="cpTrack">Track 2 (edit it to see what the issuer does; leave as is for a good swipe)</label>
+        <input id="cpTrack" spellcheck="false" autocomplete="off" style="font-family:ui-monospace,monospace;font-size:14px">
+        <label for="cpSvc" style="margin-top:8px">Service code</label><input id="cpSvc" inputmode="numeric" maxlength="3" value="201" style="max-width:120px">
+        <div id="cpTrackInfo" class="note" style="margin-top:8px"></div>
+      </div>
+      <div class="actions" style="margin-top:12px"><button class="primary" id="cpRun">Run transaction</button></div>
+      <p class="err" id="cpErr" role="alert"></p>
+    </fieldset>
+    <div id="cpOut" style="margin-top:12px"></div>
+  </div>
 </section>
 
 <section class="block hidden" id="tutor">
@@ -565,6 +596,7 @@ function renderSession() {
   $("#dash").classList.toggle("hidden", !on);
   $("#disputes").classList.toggle("hidden", !on);
   $("#tutor").classList.toggle("hidden", !on);
+  $("#cplab").classList.toggle("hidden", !on);
   $("#cof").classList.toggle("hidden", !on);
   $("#settle").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
@@ -790,7 +822,7 @@ var refreshTimer = null;
 // Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
 function refreshAll() {
   if (!key || refreshTimer) return;
-  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); refreshSettlements(); refreshTutor(); } }, 3000);
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); refreshSettlements(); refreshTutor(); refreshCpLab(); } }, 3000);
 }
 
 // ---------- 3-D Secure lab ----------
@@ -1285,6 +1317,81 @@ $("#tutAsk").addEventListener("click", async function () {
 });
 $("#tutClear").addEventListener("click", function () { TUT_HIST = []; $("#tutLog").innerHTML = ""; $("#tutErr").textContent = ""; });
 $("#tutPay").addEventListener("change", function () { TUT_HIST = []; $("#tutLog").innerHTML = ""; });
+
+// ---- POS and ATM labs (EMV and magstripe) ----
+var CPCAT = null, CPMODE = "emv";
+var CP_TAMPER = { arqc: "Flip a bit of the cryptogram", amount_after_signing: "Change the amount after the card signed it", atc_replay: "Replay an old transaction counter", unpredictable_number: "Change the terminal's random number", wrong_pin: "Enter the wrong PIN", expired_card: "Use an expired card", wrong_cvv: "Wrong CVV1 on the stripe" };
+function cpHas(id) { return CPCAT && CPCAT.transaction_types.filter(function (t) { return t.id === id; })[0]; }
+function cpFill() {
+  if (!CPCAT) return;
+  var ch = $("#cpChannel").value, emv = CPMODE === "emv";
+  var types = CPCAT.transaction_types.filter(function (t) { return t.channels.indexOf(ch) >= 0; }), keepT = $("#cpType").value;
+  $("#cpType").innerHTML = types.map(function (t) { return '<option value="' + t.id + '">' + esc(t.label) + "</option>"; }).join(""); if (types.some(function (t) { return t.id === keepT; })) $("#cpType").value = keepT;
+  var modes = CPCAT.entry_modes.filter(function (e) { return e.channels.indexOf(ch) >= 0 && (emv ? e.id === "chip" || e.id === "contactless" : e.id !== "chip" && e.id !== "contactless"); }), keepE = $("#cpEntry").value;
+  $("#cpEntry").innerHTML = modes.map(function (e) { return '<option value="' + e.id + '">' + esc(e.label) + "</option>"; }).join(""); if (modes.some(function (e) { return e.id === keepE; })) $("#cpEntry").value = keepE;
+  if (!$("#cpCard").options.length) $("#cpCard").innerHTML = CPCAT.test_cards.filter(function (c) { return /^(approve|decline|nsf|expired)$/.test(c.outcome); }).map(function (c) { return '<option value="' + c.number + '">' + esc(c.scheme) + " " + esc(c.number) + " · " + esc(c.label) + "</option>"; }).join("");
+  var tampers = emv ? ["arqc", "amount_after_signing", "atc_replay", "unpredictable_number", "wrong_pin", "expired_card"] : ["wrong_cvv", "wrong_pin", "expired_card"], keepM = $("#cpTamper").value;
+  $("#cpTamper").innerHTML = '<option value="">Nothing: a clean transaction</option>' + tampers.map(function (t) { return '<option value="' + t + '">' + esc(CP_TAMPER[t]) + "</option>"; }).join(""); $("#cpTamper").value = tampers.indexOf(keepM) >= 0 ? keepM : "";
+  cpTypeChanged();
+}
+function cpTypeChanged() {
+  var t = cpHas($("#cpType").value) || {}, tid = $("#cpType").value;
+  $("#cpAmtBox").classList.toggle("hidden", !t.financial || !!t.needs_parent && tid !== "completion" && tid !== "refund" && tid !== "incremental_auth");
+  $("#cpCbBox").classList.toggle("hidden", tid !== "cashback");
+  $("#cpParentBox").classList.toggle("hidden", !t.needs_parent);
+  $("#cpNewPinBox").classList.toggle("hidden", tid !== "pin_change");
+  $("#cpPinBox").classList.toggle("hidden", !!t.needs_parent);
+  $("#cpTamperBox").classList.toggle("hidden", !!t.needs_parent);
+  $("#cpMagBox").classList.toggle("hidden", CPMODE !== "mag" || !!t.needs_parent);
+  if (t.needs_parent) {
+    var want = { completion: "authorization", incremental_auth: "authorization", refund: "purchase" }[tid];
+    var list = (LAST || []).filter(function (p) { return p.method === "card" && p.transaction_state === "success" && (!want || p.transaction_type === want || (want === "purchase" && p.transaction_type === "capture-authorization")); });
+    $("#cpParent").innerHTML = list.length ? list.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.id) + " · " + esc(p.transaction_type) + " · " + fmt(p.amount) + " " + esc(p.currency) + "</option>"; }).join("") : '<option value="">No matching transaction yet: make one first</option>';
+  }
+  cpTrack();
+}
+function cpTrack() {
+  if (CPMODE !== "mag" || !CPCAT) return;
+  var c = CPCAT.test_cards.filter(function (x) { return x.number === $("#cpCard").value; })[0]; if (!c) return;
+  $("#cpTrackInfo").innerHTML = "Track 2 layout: <code>;card number = expiry YYMM, service code, PVKI, PIN check value, CVV1 ?</code>. The service code's first digit 2 or 6 means a chip card: swiping it is refused, you must use the chip (or fall back after a failed chip read). Change the service code to 101 to make a stripe-only card.";
+  if (!$("#cpTrack").dataset.touched) $("#cpTrack").value = "";
+  $("#cpTrack").placeholder = "Leave empty to let the lab swipe " + c.number + " for you, or paste a track 2 line";
+}
+function cpFlowHtml(flow) {
+  return '<ol style="padding-left:20px;margin:8px 0">' + flow.map(function (f) { return '<li style="margin:6px 0"><strong>' + (f.ok ? "" : "✗ ") + esc(f.title) + "</strong>: " + esc(f.detail) + "</li>"; }).join("") + "</ol>";
+}
+function cpRender(r) {
+  var b = r.body, out = $("#cpOut");
+  if (r.status >= 400 && !b.flow) { out.innerHTML = ""; $("#cpErr").textContent = errMsg(r); return; }
+  var h = '<div class="take" style="padding:10px 12px;border-radius:12px;border:2px solid var(--line)"><strong>' + (b.approved ? "Approved" : "Declined") + "</strong> · response " + esc(b.response_code) + " · " + esc(b.response_message || "") + (b.id ? " · " + esc(b.id) : "") + (b.cvm ? " · verification: " + esc(b.cvm.replace("_", " ")) : "") + (b.cp ? " · POS entry mode " + esc(b.cp.pos_entry_mode) : "") + "</div>";
+  if (b.balance) h += '<p class="take">Balance: ' + fmt(b.balance.available) + " " + esc(b.balance.currency) + "</p>";
+  if (b.statement) h += '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th></tr></thead><tbody>' + (b.statement.map(function (s) { return "<tr><td>" + esc(s.date.slice(0, 16).replace("T", " ")) + "</td><td>" + esc(s.type) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("") || '<tr><td colspan="3">No ATM transactions yet</td></tr>') + "</tbody></table></div>";
+  if (b.emv) h += '<div class="tablewrap"><table><tbody><tr><th>ARQC (card)</th><td><code>' + esc(b.emv.arqc) + "</code>" + (b.emv.expected_arqc ? " · issuer expected <code>" + esc(b.emv.expected_arqc) + "</code>" : "") + "</td></tr><tr><th>ATC</th><td><code>" + esc(b.emv.atc) + "</code></td></tr>" + (b.emv.arpc ? "<tr><th>ARPC (issuer)</th><td><code>" + esc(b.emv.arpc) + "</code></td></tr>" : "") + (b.emv.tvr_flags ? "<tr><th>TVR " + esc(b.emv.tvr) + "</th><td>" + (b.emv.tvr_flags.map(esc).join("; ") || "no flags") + "</td></tr>" : "") + "</tbody></table></div>";
+  h += '<h3 style="margin:12px 0 0;font-size:16px">What happened, step by step</h3>' + cpFlowHtml(b.flow || []);
+  out.innerHTML = h; $("#cpErr").textContent = ""; refreshAll();
+}
+async function cpRun() {
+  $("#cpErr").textContent = ""; var tid = $("#cpType").value, t = cpHas(tid), b = { channel: $("#cpChannel").value, transaction_type: tid, entry_mode: $("#cpEntry").value };
+  if (t.needs_parent) { b.parent_transaction_id = $("#cpParent").value; if (!b.parent_transaction_id) { $("#cpErr").textContent = "Pick the original transaction first."; return; } if (tid === "completion" || tid === "refund" || tid === "incremental_auth") b.amount = Number($("#cpAmt").value); }
+  else {
+    if (t.financial) b.amount = Number($("#cpAmt").value); if (tid === "cashback") b.cashback_amount = Number($("#cpCb").value);
+    b.card_number = $("#cpCard").value; if ($("#cpTamper").value) b.tamper = $("#cpTamper").value;
+    if (t.needs_pin || b.channel === "atm" || (b.entry_mode === "contactless" && b.amount > 50)) b.pin = $("#cpPin").value;
+    if (tid === "pin_change") b.new_pin = $("#cpNewPin").value;
+    if (b.entry_mode === "manual") { var c = CPCAT.test_cards.filter(function (x) { return x.number === b.card_number; })[0]; b.card_cvv = c.cvv2; }
+    if (CPMODE === "mag") { if ($("#cpTrack").value.trim()) b.track2 = $("#cpTrack").value.trim(); if ($("#cpSvc").value && $("#cpSvc").value !== "201") b.service_code = $("#cpSvc").value; }
+  }
+  $("#cpRun").disabled = true; var r = await api("POST", "/v1/card-present", b); $("#cpRun").disabled = false; cpRender(r);
+}
+async function refreshCpLab() {
+  if (!key) return;
+  if (!CPCAT) { var r = await api("GET", "/v1/card-present"); if (r.status !== 200) return; CPCAT = r.body; cpFill(); }
+  else if (!$("#cpParentBox").classList.contains("hidden")) cpTypeChanged();
+}
+function cpSetMode(m) { CPMODE = m; $("#cpTabEmv").classList.toggle("primary", m === "emv"); $("#cpTabMag").classList.toggle("primary", m === "mag"); $("#cpTabEmv").setAttribute("aria-selected", m === "emv"); $("#cpTabMag").setAttribute("aria-selected", m === "mag"); cpFill(); }
+$("#cpTabEmv").addEventListener("click", function () { cpSetMode("emv"); }); $("#cpTabMag").addEventListener("click", function () { cpSetMode("mag"); });
+$("#cpChannel").addEventListener("change", cpFill); $("#cpType").addEventListener("change", cpTypeChanged); $("#cpCard").addEventListener("change", cpTrack); $("#cpSvc").addEventListener("input", cpTrack);
+$("#cpTrack").addEventListener("input", function () { this.dataset.touched = "1"; }); $("#cpRun").addEventListener("click", cpRun);
 
 async function refreshSettlements() {
   if (!key) return;

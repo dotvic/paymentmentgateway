@@ -1058,6 +1058,10 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.match((await tool("explain_status_code", { code: "SBX-4225" })).text, /refundable/); assert.match((await tool("explain_status_code", { code: "116" })).text, /Amex|American/);
       assert.ok((await tool("get_failure_script", {})).json); assert.ok(!(await tool("clear_failure_script", {})).isError);
       assert.ok((await tool("list_webhook_deliveries", {})).json.data);
+      const cpm = await tool("card_present_transaction", { transaction_type: "sale", amount: 4.2, card_number: "4111111111111111" }); assert.equal(cpm.json.approved, true); assert.ok(cpm.json.emv.arqc);
+      assert.ok((await tool("card_present_transaction", { transaction_type: "sale", amount: 4.2, card_number: "4242424242424242" })).isError, "real card refused by MCP");
+      assert.equal((await tool("get_card_present_log", { transaction_id: cpm.json.id })).json.flow.length >= 4, true);
+      assert.equal((await tool("list_card_present_options", {})).json.test_cards.length, 33); assert.match((await tool("explain_status_code", { code: "ISO 82" })).text, /Cryptogram/);
     }
 
     console.log("All checks passed");

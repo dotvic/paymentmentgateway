@@ -81,6 +81,26 @@ const TOOLS = [
   { name: "reconcile_ledger", title: "Reconcile your ledger", annotations: WR, description: "Compares your own ledger lines with a settlement and reports missing, extra and mismatched items.",
     inputSchema: obj({ settlement_id: ID("settlement", "stl_"), ledger: { type: "array", items: { type: "object" }, description: "Your ledger lines, same shape the REST API expects" } }, ["settlement_id", "ledger"]),
     run: (a, api) => api("POST", `/v1/settlements/${enc(a.settlement_id)}/reconcile`, { ledger: a.ledger }) },
+  { name: "card_present_transaction", title: "Run a POS or ATM transaction", annotations: WR,
+    description: "Plays card, terminal and issuer for a card-present transaction with real EMV cryptograms (test keys), magstripe CVV1, PIN blocks and ISO-style response codes. POS: sale, auth, completion, incremental_auth, void, reversal, refund, cashback, cash_advance, quasi_cash, oct, aft. ATM: withdrawal, balance_inquiry, mini_statement, pin_change, cash_advance. Test cards only (test PIN 1234). Use tamper to break a cryptogram, PIN or stripe on purpose. Returns the step-by-step flow.",
+    inputSchema: obj({
+      channel: S("pos (default) or atm", { enum: ["pos", "atm"] }), transaction_type: S("See the description for the full list"),
+      entry_mode: S("chip (default), contactless, magstripe, fallback or manual", { enum: ["chip", "contactless", "magstripe", "fallback", "manual"] }),
+      amount: { type: "number" }, currency: S("EUR, USD or GBP"), cashback_amount: { type: "number" }, card_number: S("A Zanboxx test card number"), track1: S("Track 1 for stripe tests"), track2: S("Track 2 for stripe tests, e.g. ;PAN=YYMMSSSDDDD?"),
+      service_code: S("3 digits; 2xx/6xx mean chip card"), expiry: S("YYMM"), card_cvv: S("CVV2, for manual entry"), pin: S("PIN, 4 to 12 digits (test PIN 1234)"), pin_block: S("Encrypted ISO format 0 PIN block, 16 hex digits"), new_pin: S("For pin_change"),
+      emv: { type: "object", description: "Optional chip data to verify: atc, un, aip, iad, tvr, country, date, arqc (hex)" }, tamper: S("Break something on purpose", { enum: ["arqc", "amount_after_signing", "atc_replay", "unpredictable_number", "wrong_pin", "expired_card", "wrong_cvv"] }),
+      parent_transaction_id: ID("original transaction", "tx_"), reversal_reason: S("timeout, customer_cancelled, device_failure or malfunction"), mcc: S("4-digit merchant category code"), terminal_id: S("Up to 16 letters, digits, - or _"), psn: S("PAN sequence number, 2 digits"), device: S("mobile for a phone (device CVM) on contactless"), request_id: S("Idempotency key (generated if omitted)"),
+    }, ["transaction_type"]),
+    run: async (a, api) => {
+      const n = [a.card_number, a.track2, a.track1].filter(Boolean).join(" ").match(/\d{13,19}/g) || [];
+      if (n.some((x) => !TEST_NUMBERS.has(x) && SCH.luhn(x) && SCH.detect(x))) return { refuse: "That card number looks real. The card-present labs accept Zanboxx test cards only. Use list_card_present_options for the test cards." };
+      return api("POST", "/v1/card-present", a);
+    } },
+  { name: "list_card_present_options", title: "List POS and ATM options", annotations: RO, description: "Transaction types, entry modes, response codes, limits and every test card with its expiry, service code, CVV1, CVV2 and track 2.", inputSchema: obj({}), run: (a, api) => api("GET", "/v1/card-present") },
+  { name: "get_card_present_log", title: "Get a card-present flow", annotations: RO, description: "The step-by-step flow of a card-present transaction made earlier.", inputSchema: obj({ transaction_id: ID("transaction", "tx_") }, ["transaction_id"]),
+    run: (a, api) => api("GET", `/v1/payments/${enc(a.transaction_id)}/card-present-log`) },
+  { name: "reset_pin_tries", title: "Reset a test card's PIN", annotations: WR, description: "Clears the wrong-PIN counter and restores the test PIN 1234 for a test card.", inputSchema: obj({ card_number: S("A Zanboxx test card number") }, ["card_number"]),
+    run: (a, api) => api("POST", "/v1/card-present/reset-pin-tries", { card_number: a.card_number }) },
   { name: "get_usage", title: "Get usage and plan", annotations: RO, description: "Plan, monthly payment quota and rate limit.", inputSchema: obj({}), run: (a, api) => api("GET", "/v1/usage") },
   { name: "list_test_cards", title: "List test cards", annotations: RO, description: "Test card numbers per scheme (Visa, Mastercard, Amex) and what each one triggers.", inputSchema: obj({ scheme: S("visa, mastercard or amex", { enum: ["visa", "mastercard", "amex"] }) }),
     run: async (a) => ({ data: SCH.TEST_CARDS.filter((c) => !a.scheme || c.scheme === a.scheme), note: "Sandbox only. CVV: 3 digits (Amex 4). Any future expiry." }) },

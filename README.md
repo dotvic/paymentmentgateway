@@ -52,6 +52,7 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
+| `GET/POST /v1/card-present` | POS and ATM labs. See the POS and ATM section. |
 | `GET/POST /v1/tutor` | AI tutor (needs ANTHROPIC_API_KEY). See the AI tutor section. |
 | `POST /mcp` | MCP server (JSON-RPC 2.0). See the MCP section. |
 | `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `initiator`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
@@ -173,9 +174,28 @@ claude mcp add --transport http zanboxx https://zanboxx.com/mcp --header "Author
 npx mcp-remote https://zanboxx.com/mcp --header "Authorization: Bearer sk_test_..."
 ```
 
-Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `get_interchange_report`, `reconcile_ledger`, `get_usage`, `list_test_cards`, `explain_status_code`.
+Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `get_interchange_report`, `reconcile_ledger`, `get_usage`, `card_present_transaction`, `list_card_present_options`, `get_card_present_log`, `reset_pin_tries`, `list_test_cards`, `explain_status_code`.
 
 Safety: test cards only. `create_payment` refuses card numbers that look real. Key rotation, account deletion, billing and "delete all payments" are not exposed. Browser clients need their origin listed in `MCP_ALLOWED_ORIGINS` (comma separated); other clients send no Origin and work as is. There is no OAuth yet, so connectors that require it (the claude.ai connector screen) cannot connect for now.
+
+## POS and ATM labs (EMV chip, contactless, magnetic stripe)
+
+`POST /v1/card-present` plays the card, the terminal and the issuer in one request, and the result is a normal payment (it shows up in payments, disputes and settlement). `GET /v1/card-present` lists the transaction types, entry modes, response codes, limits and every test card with its expiry, service code, CVV1, CVV2 and track 2. The dashboard has an **EMV lab** and a **Magstripe lab** on top of this, with a step-by-step explanation of each transaction.
+
+| Where | Transaction types |
+| --- | --- |
+| POS | `sale`, `auth`, `completion`, `incremental_auth`, `void`, `reversal`, `refund`, `cashback`, `cash_advance`, `quasi_cash`, `oct` (original credit transaction, money to the card), `aft` (account funding transaction) |
+| ATM | `withdrawal` (notes of 10, 500 a day), `balance_inquiry`, `mini_statement`, `pin_change`, `cash_advance` |
+
+Entry modes: `chip`, `contactless` (limit 100, PIN above 50 unless `device: "mobile"`), `magstripe`, `fallback` (stripe after a failed chip read, POS entry mode 80) and `manual` (CVV2 is checked). Refunds, voids, reversals, completions and incremental authorisations work on a `parent_transaction_id` and need no card.
+
+What is real and what is made up:
+
+- **Real algorithms, test keys.** The chip's application cryptogram (ARQC) is a retail MAC (ISO 9797-1 algorithm 3) over the CDOL1 data, signed with a session key derived from an issuer master key, the card number, the PAN sequence number and the transaction counter (ATC). The issuer recomputes it and answers with an ARPC (method 1). Magstripe CVV1/CVV2 use the Visa-style CVV algorithm; PINs travel in ISO format 0 blocks encrypted with 3DES, and the issuer checks a PIN verification value (PVV), never the PIN. Every key is a published or made-up test key (`emv.js`).
+- **Simplified:** the issuer application data, AIP and CVM list are fixed teaching values; no scheme-specific kernels, no offline data authentication, no terminal acquirer network.
+- **Test cards only.** Any other card number, in `card_number` or in a track, is refused with SBX-4263. The lab never needs, stores or prints a real card number, and it must not be used with real card data or real keys. All test cards use the PIN 1234; three wrong PINs block the card until `POST /v1/card-present/reset-pin-tries`.
+
+`tamper` breaks something on purpose so you can see how it is caught: `arqc`, `amount_after_signing`, `atc_replay`, `unpredictable_number`, `wrong_pin`, `expired_card`, `wrong_cvv`. You can also send your own chip data in `emv` (`atc`, `un`, `aip`, `iad`, `tvr`, `country`, `date`, `arqc`) and the issuer will tell you the ARQC it expected. `GET /v1/payments/{id}/card-present-log` returns the flow of an earlier transaction. Response codes are simplified ISO 8583 field 39 values (`00`, `05`, `51`, `54`, `55`, `57`, `61`, `62`, `75`, `82`, `91`, `1A`, `N7`).
 
 ## AI tutor
 
