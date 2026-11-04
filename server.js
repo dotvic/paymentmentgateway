@@ -214,6 +214,7 @@ function sweepDisputes(acc) {
 // ---------- clearing, settlement and payouts, see settlement.js ----------
 const STL = require("./settlement")({ bad, rnd });
 const TUTOR = require("./tutor")({ bad });
+const CP = require("./cardpresent")({ bad, rnd, r2, createPayment: (acc, b) => createPayment(acc, b) });
 // What the tutor may see: the user's own payment, its 3-D Secure steps (names and titles only) and its dispute. Never a card number: none is stored.
 function tutorContext(acc, id) {
   const clip = (o, n) => JSON.stringify(o, null, 1).slice(0, n);
@@ -785,6 +786,27 @@ async function route(req, res) {
   const plan = planOf(acc);
   if (limited(buckets, acc.id, PLANS[plan].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down");
 
+  let mt;
+  if (path === "/v1/card-present" || path.startsWith("/v1/card-present/")) {
+    if (path === "/v1/card-present" && m === "GET") return send(res, 200, CP.catalog());
+    if (path === "/v1/card-present" && m === "POST") {
+      CP.setSave(() => save(acc));
+      const b = await readBody(req), out = CP.run(acc, b && typeof b === "object" && !Array.isArray(b) ? b : {});
+      save(acc);
+      return send(res, out.status === 201 ? 201 : out.status, out.body);
+    }
+    if (path === "/v1/card-present/reset-pin-tries" && m === "POST") {
+      const b = await readBody(req), out = CP.resetPinTries(acc, String((b && b.card_number) || "").replace(/\s/g, ""));
+      save(acc); return send(res, 200, out);
+    }
+  }
+  if ((mt = path.match(/^\/v1\/payments\/(tx_[a-f0-9]{16})\/card-present-log$/)) && m === "GET") {
+    const p = acc.payments.find((x) => x.id === mt[1]);
+    if (!p) throw bad(404, "not_found", "Transaction not found");
+    if (!p._cpflow) throw bad(404, "not_found", "This transaction was not made through the card-present lab");
+    return send(res, 200, { transaction_id: p.id, cp: p.cp, flow: p._cpflow });
+  }
+
   if (path === "/v1/tutor") {
     if (m === "GET") return send(res, 200, { enabled: TUTOR.enabled(), remaining_today: TUTOR.remaining(acc, plan), limit_per_day: TUTOR.LIMITS[plan], note: "Questions are sent to an AI service (Anthropic) together with the payment you select. Never type real card data." });
     if (m === "POST") {
@@ -806,7 +828,6 @@ async function route(req, res) {
     if (out.latency_ms) await sleep(out.latency_ms);
     return send(res, out.status, out.body);
   }
-  let mt;
   if (m === "POST" && (mt = path.match(/^\/v1\/payments\/(tx_[a-f0-9]+)\/dispute$/))) {
     const p = acc.payments.find((x) => x.id === mt[1]), b = await readBody(req);
     if (!p) throw bad(404, "not_found", "Transaction not found");

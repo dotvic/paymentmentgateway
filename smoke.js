@@ -910,6 +910,89 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("POST", "/v1/payments", { request_id: "ct6-" + Math.random(), method: "card", transaction_type: "refund", amount: 1, currency: "EUR", parent_transaction_id: cA.id })).body.card_type, "commercial", "refund keeps parent's card type");
     }
 
+    // ---- card-present: POS and ATM, chip, magstripe, EMV crypto ----
+    {
+      const cpost = (b) => api("POST", "/v1/card-present", b);
+      const cat = (await api("GET", "/v1/card-present")).body; assert.equal(cat.transaction_types.length, 16); assert.equal(cat.test_cards.length, 33); assert.ok(cat.entry_modes.length === 5);
+      const V = "4111111111111111";
+      // chip sale: real ARQC verified, ARPC returned, appears as a normal payment
+      const s1 = await cpost({ transaction_type: "sale", amount: 12.5, card_number: V }); assert.equal(s1.status, 201); assert.equal(s1.body.approved, true); assert.equal(s1.body.response_code, "00");
+      assert.match(s1.body.emv.arqc, /^[0-9A-F]{16}$/); assert.match(s1.body.emv.arpc, /^[0-9A-F]{16}$/); assert.equal(s1.body.emv.cid.type, "ARQC"); assert.equal(s1.body.emv.atc, "0001");
+      assert.equal(s1.body.transaction_type, "purchase"); assert.equal(s1.body.cp.channel, "pos"); assert.equal(s1.body.cp.pos_entry_mode, "052");
+      assert.ok(s1.body.flow.some((f) => /Issuer checks the ARQC/.test(f.title) && f.ok));
+      assert.equal((await api("GET", `/v1/payments/${s1.body.id}`)).body.cp.entry_mode, "chip");
+      assert.ok((await api("GET", `/v1/payments/${s1.body.id}/card-present-log`)).body.flow.length >= 4);
+      assert.equal((await cpost({ transaction_type: "sale", amount: 1, card_number: V })).body.emv.atc, "0002", "counter increases");
+      // independent check of the crypto: recompute the ARQC with the toolkit
+      const EMV = require("./emv"); const e1 = s1.body.emv;
+      assert.equal(EMV.hex(EMV.generateArqc(V, "00", { amount: 12.5, other: 0, country: "0276", tvr: e1.tvr, currency: "EUR", date: new Date().toISOString().slice(2, 10).replace(/-/g, ""), type: "00", un: e1.un, aip: e1.aip, atc: e1.atc, iad: "0110A00003220000" })), e1.arqc);
+      assert.equal(EMV.hex(EMV.generateArpc(V, "00", e1.atc, e1.arqc, "00")), e1.arpc);
+      // tampering is caught
+      for (const t of ["arqc", "amount_after_signing", "unpredictable_number", "atc_replay"]) { const r = await cpost({ transaction_type: "sale", amount: 5, card_number: V, tamper: t }); assert.equal(r.body.approved, false, t); assert.equal(r.body.response_code, "82", t); assert.equal(r.body.transaction_state, "failed"); }
+      // user-supplied EMV data is verified
+      const own = await cpost({ transaction_type: "sale", amount: 7, card_number: V, emv: { atc: "0100", un: "01020304", arqc: "0000000000000000" } }); assert.equal(own.body.approved, false); assert.ok(own.body.emv.expected_arqc.length === 16);
+      const own2 = await cpost({ transaction_type: "sale", amount: 7, card_number: V, emv: { atc: "0100", un: "01020304", arqc: own.body.emv.expected_arqc } }); assert.equal(own2.body.approved, true, JSON.stringify(own2.body.flow.slice(-2)));
+      // magstripe: chip card swiped is refused, fallback works, wrong CVV1 fails, signature CVM
+      assert.equal((await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "magstripe" })).body.response_code, "62");
+      const fb = await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "fallback" }); assert.equal(fb.body.approved, true); assert.equal(fb.body.cp.pos_entry_mode, "802"); assert.equal(fb.body.cvm, "signature");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "fallback", tamper: "wrong_cvv" })).body.response_code, "82");
+      const MAG = require("./mag"), tr = MAG.buildTracks(V, { serviceCode: "101" });
+      const stripe = await cpost({ transaction_type: "sale", amount: 3, track2: tr.track2, service_code: "101", entry_mode: "magstripe" }); assert.equal(stripe.body.approved, true, JSON.stringify(stripe.body.flow));
+      assert.equal((await cpost({ transaction_type: "sale", amount: 3, track2: tr.track2.replace(tr.cvv1 + "?", "000?"), service_code: "101", entry_mode: "magstripe" })).body.response_code, "82", "bad CVV1 on the stripe");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 3, track2: ";4242424242424242=30122011234?", entry_mode: "magstripe" })).status, 422, "real-looking card refused");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 3, card_number: "4242424242424242" })).status, 422);
+      // manual entry checks CVV2
+      const cv2 = MAG.cvv(V, "3012", "000"); assert.equal((await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "manual", card_cvv: cv2 })).body.approved, true); assert.equal((await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "manual", card_cvv: "999" })).body.response_code, "N7");
+      // contactless limit and online PIN above the floor
+      assert.equal((await cpost({ transaction_type: "sale", amount: 150, card_number: V, entry_mode: "contactless" })).body.response_code, "1A");
+      const cl = await cpost({ transaction_type: "sale", amount: 80, card_number: V, entry_mode: "contactless", pin: "1234" }); assert.equal(cl.body.approved, true); assert.equal(cl.body.cvm, "online_pin"); assert.ok(cl.body.emv.tvr_flags.includes("Online PIN entered"));
+      assert.equal((await cpost({ transaction_type: "sale", amount: 80, card_number: V, entry_mode: "contactless", device: "mobile" })).body.cvm, "cdcvm");
+      // POS: pre-auth, incremental, completion, void, reversal, refund, cashback, cash advance, quasi-cash, AFT, OCT
+      const M = "5555555555554444";
+      const au = await cpost({ transaction_type: "auth", amount: 100, card_number: M }); assert.equal(au.body.transaction_type, "authorization");
+      const inc = await cpost({ transaction_type: "incremental_auth", amount: 50, parent_transaction_id: au.body.id }); assert.equal(inc.body.approved, true); assert.equal(inc.body.payment.amount, 150); assert.equal(inc.body.payment.increments.length, 1);
+      const co = await cpost({ transaction_type: "completion", amount: 150, parent_transaction_id: au.body.id }); assert.equal(co.body.approved, true); assert.equal(co.body.transaction_type, "capture-authorization");
+      assert.equal((await cpost({ transaction_type: "incremental_auth", amount: 5, parent_transaction_id: au.body.id })).status, 422, "no increment after capture");
+      const sv = await cpost({ transaction_type: "sale", amount: 20, card_number: M }); const vd = await cpost({ transaction_type: "void", parent_transaction_id: sv.body.id }); assert.equal(vd.body.approved, true); assert.equal(vd.body.cp.transaction_type, "void");
+      const s3 = await cpost({ transaction_type: "sale", amount: 30, card_number: M }); const rv = await cpost({ transaction_type: "reversal", parent_transaction_id: s3.body.id, reversal_reason: "device_failure" }); assert.equal(rv.body.approved, true, JSON.stringify(rv.body).slice(0, 300)); assert.equal(rv.body.cp.reversal_reason, "device_failure");
+      const s4 = await cpost({ transaction_type: "sale", amount: 40, card_number: M }); const rf = await cpost({ transaction_type: "refund", amount: 15, parent_transaction_id: s4.body.id }); assert.equal(rf.body.approved, true); assert.equal(rf.body.transaction_type, "refund");
+      assert.equal((await cpost({ transaction_type: "cashback", amount: 40, cashback_amount: 20, card_number: M })).status, 400, "cashback needs PIN");
+      const cb = await cpost({ transaction_type: "cashback", amount: 40, cashback_amount: 20, card_number: M, pin: "1234" }); assert.equal(cb.body.approved, true); assert.equal(cb.body.cp.cashback_amount, 20); assert.equal(cb.body.emv.valid, true);
+      assert.equal((await cpost({ transaction_type: "cashback", amount: 10, cashback_amount: 20, card_number: M, pin: "1234" })).status, 400);
+      assert.equal((await cpost({ transaction_type: "cash_advance", amount: 200, card_number: M, pin: "1234" })).body.cp.mcc, "6010");
+      assert.equal((await cpost({ transaction_type: "quasi_cash", amount: 90, card_number: M })).body.cp.mcc, "6051");
+      assert.equal((await cpost({ transaction_type: "aft", amount: 25, card_number: M })).body.cp.business_application_id, "AA");
+      const oc = await cpost({ transaction_type: "oct", amount: 25, card_number: M }); assert.equal(oc.body.approved, true); assert.equal(oc.body.transaction_type, "refund"); assert.equal(oc.body.oct, true);
+      // decline outcomes follow the test card after the security checks pass
+      assert.equal((await cpost({ transaction_type: "sale", amount: 9, card_number: "4000000000009995" })).body.response_code, "51");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 9, card_number: "4000000000000002" })).body.response_code, "05");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 9, card_number: "4000000000000069" })).body.response_code, "54");
+      assert.equal((await cpost({ transaction_type: "sale", amount: 9, card_number: "4000000000003220" })).body.approved, true, "3DS cards are plain cards at a terminal");
+      // ATM: PIN rules, limits, balance, statement, PIN change, try counter
+      const atm = (b) => cpost({ channel: "atm", card_number: V, ...b });
+      assert.equal((await atm({ transaction_type: "withdrawal", amount: 100 })).status, 400, "ATM needs PIN");
+      assert.equal((await atm({ transaction_type: "withdrawal", amount: 105, pin: "1234" })).status, 422, "notes of 10");
+      const w1 = await atm({ transaction_type: "withdrawal", amount: 300, pin: "1234" }); assert.equal(w1.body.approved, true); assert.equal(w1.body.cp.mcc, "6011");
+      assert.equal((await atm({ transaction_type: "withdrawal", amount: 300, pin: "1234" })).body.response_code, "61", "daily limit");
+      const bal = await atm({ transaction_type: "balance_inquiry", pin: "1234" }); assert.equal(bal.body.balance.available, 1700); assert.equal(bal.body.id, undefined, "no payment for a balance inquiry");
+      const ms = await atm({ transaction_type: "mini_statement", pin: "1234" }); assert.equal(ms.body.statement.length, 1); assert.equal(ms.body.statement[0].amount, -300);
+      assert.equal((await atm({ transaction_type: "balance_inquiry", pin: "1234", amount: 5 })).status, 400);
+      assert.equal((await atm({ transaction_type: "pin_change", pin: "1234", new_pin: "1111" })).body.approved, false, "weak PIN");
+      assert.equal((await atm({ transaction_type: "pin_change", pin: "1234", new_pin: "7391" })).body.approved, true);
+      assert.equal((await atm({ transaction_type: "balance_inquiry", pin: "1234" })).body.response_code, "55", "old PIN no longer works");
+      assert.equal((await atm({ transaction_type: "balance_inquiry", pin: "7391" })).body.approved, true);
+      const blockHex = MAG.buildPinBlock("7391", V).encrypted; assert.equal((await atm({ transaction_type: "balance_inquiry", pin_block: blockHex })).body.approved, true, "encrypted PIN block");
+      assert.equal((await atm({ transaction_type: "balance_inquiry", pin_block: MAG.buildPinBlock("7391", "5555555555554444").encrypted })).body.approved, false, "block made for another card");
+      for (let i = 0; i < 3; i++) await atm({ transaction_type: "balance_inquiry", pin: "0000" });
+      assert.equal((await atm({ transaction_type: "balance_inquiry", pin: "7391" })).body.response_code, "75", "blocked after 3 wrong PINs");
+      assert.equal((await api("POST", "/v1/card-present/reset-pin-tries", { card_number: V })).status, 200); assert.equal((await atm({ transaction_type: "balance_inquiry", pin: "1234" })).body.approved, true, "reset restores test PIN");
+      assert.equal((await atm({ transaction_type: "sale", amount: 5 })).status, 422, "sale is not an ATM transaction"); assert.equal((await cpost({ transaction_type: "withdrawal", amount: 10, card_number: V, pin: "1234" })).status, 422, "withdrawal is not a POS transaction");
+      assert.equal((await atm({ transaction_type: "withdrawal", amount: 20, pin: "1234", entry_mode: "contactless" })).status, 422);
+      assert.equal((await cpost({ transaction_type: "sale", amount: 5, card_number: V, bogus: 1 })).status, 400);
+      // the lab's payments settle like any other
+      const stl = await api("POST", "/v1/settlements", {}); assert.equal(stl.status, 201, JSON.stringify(stl.body).slice(0, 200));
+    }
+
     // ---- AI tutor (mock model) ----
     {
       const keep = key; const ta = await api("POST", "/v1/accounts"); key = ta.body.api_key;
