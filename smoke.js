@@ -1020,7 +1020,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("POST", "/v1/tutor", { question: "hi", transaction_id: "tx_ffffffffffffffff" })).status, 404);
       assert.equal((await api("POST", "/v1/tutor", { question: "LEAK please" })).body.answer.startsWith("I can't show that"), true, "answers are scanned too");
       const rem = (await api("GET", "/v1/tutor")).body.remaining_today;
-      assert.equal((await api("POST", "/v1/tutor", { question: "UPSTREAM-FAIL" })).status, 502); assert.equal((await api("GET", "/v1/tutor")).body.remaining_today, rem, "failed calls are not counted");
+      { const uf = await api("POST", "/v1/tutor", { question: "UPSTREAM-FAIL" }); assert.equal(uf.status, 502); assert.match(uf.body.error.message, /overloaded/); assert.equal(uf.body.error.upstream_status, 529); } assert.equal((await api("GET", "/v1/tutor")).body.remaining_today, rem, "failed calls are not counted");
       for (let i = 0; i < rem; i++) assert.equal((await api("POST", "/v1/tutor", { question: "q" + i, history: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] })).status, 200);
       const cap = await api("POST", "/v1/tutor", { question: "one more" }); assert.equal(cap.status, 429); assert.equal(cap.body.error.code, "tutor_limit");
       key = null; assert.equal((await api("GET", "/v1/tutor")).status, 401); key = keep;

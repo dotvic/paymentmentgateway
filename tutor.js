@@ -68,7 +68,9 @@ module.exports = function createTutor({ bad, apiKey = process.env.ANTHROPIC_API_
       });
       j = await r.json().catch(() => ({}));
     } catch (e) { acc.tutor.count--; g.count--; throw bad(502, "tutor_failed", "The tutor could not be reached. Try again in a moment."); }
-    if (!r.ok) { acc.tutor.count--; g.count--; console.error("tutor upstream", r.status, j && j.error && j.error.type); throw bad(502, "tutor_failed", "The tutor could not answer right now. Try again in a moment."); }
+    if (!r.ok) { acc.tutor.count--; g.count--; console.error("tutor upstream", r.status, j && j.error && j.error.type, j && j.error && String(j.error.message || "").slice(0, 200), "model:", model);
+      const hint = { 401: "the server's Anthropic API key was rejected", 403: "the server's Anthropic API key is not allowed to use this model", 404: "the configured model was not found (check TUTOR_MODEL)", 429: "the Anthropic rate limit was reached", 529: "Anthropic is overloaded" }[r.status] || (r.status === 400 && /credit|balance|billing/i.test(String(j && j.error && j.error.message)) ? "the Anthropic account is out of credit" : null);
+      throw bad(502, "tutor_failed", "The tutor could not answer right now. Try again in a moment." + (hint ? ` (Server side: ${hint}.)` : ""), { upstream_status: r.status }); }
     let answer = (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n").trim() || "I have no answer for that.";
     if (realLookingCard(answer)) answer = "I can't show that: the answer contained something that looks like a real card number. Zanboxx works with test cards only.";
     return { answer, remaining_today: remaining(acc, plan), limit_per_day: LIMITS[plan] };
