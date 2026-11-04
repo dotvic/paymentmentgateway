@@ -52,6 +52,7 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 | `POST /v1/login` | Email a sign-in link to a confirmed address (always answers 200) |
 | `POST /v1/login/redeem` | Exchange a sign-in link token for a new API key |
 | `POST /v1/email/verify` | Confirm an email with the token from the link |
+| `GET/POST /v1/tutor` | AI tutor (needs ANTHROPIC_API_KEY). See the AI tutor section. |
 | `POST /mcp` | MCP server (JSON-RPC 2.0). See the MCP section. |
 | `GET/PUT/DELETE /v1/script` | Failure script (Pro or trial): `{"rules":[{"when":{"every":3},"then":{"outcome":"decline"}}]}`. Fields: when `nth`, `every`, `amount_gte`, `amount_lte`, `currency`, `method`, `transaction_type`, `scheme`, `initiator`, `probability`; then `outcome`, `latency_ms`, `http_error` (500/502/503, no payment created), `webhook` (`duplicate`, `delay_ms`, `drop`, `bad_signature`) |
 | `GET /v1/webhook/deliveries/{id}` | One delivery with the stored event body and every attempt (status, time taken, response snippet) |
@@ -175,6 +176,14 @@ npx mcp-remote https://zanboxx.com/mcp --header "Authorization: Bearer sk_test_.
 Tools: `create_payment`, `get_payment`, `list_payments`, `complete_3ds_challenge`, `get_3ds_log`, `get/set/clear_failure_script`, `list_webhook_deliveries`, `replay_webhook_delivery`, `create_dispute`, `list_disputes`, `get_dispute`, `submit_dispute_evidence`, `accept_dispute`, `list_agreements`, `cancel_agreement`, `close_settlement_day`, `get_settlement`, `get_interchange_report`, `reconcile_ledger`, `get_usage`, `list_test_cards`, `explain_status_code`.
 
 Safety: test cards only. `create_payment` refuses card numbers that look real. Key rotation, account deletion, billing and "delete all payments" are not exposed. Browser clients need their origin listed in `MCP_ALLOWED_ORIGINS` (comma separated); other clients send no Origin and work as is. There is no OAuth yet, so connectors that require it (the claude.ai connector screen) cannot connect for now.
+
+## AI tutor
+
+`POST /v1/tutor` answers questions about your own sandbox payments, with a chat panel in the dashboard (section "Ask the tutor"). It is **off** until you set `ANTHROPIC_API_KEY` (Fly: `fly secrets set ANTHROPIC_API_KEY=... --app paymentmentgateway`). Optional: `TUTOR_MODEL` (default `claude-haiku-5-5`), `TUTOR_GLOBAL_DAILY` (total questions per day for everyone, default 2000).
+
+Body: `{"question": "...", "transaction_id": "tx_...", "history": [{"role":"user","content":"..."}]}`. `GET /v1/tutor` shows whether it is on and your questions left today.
+
+Guardrails: card numbers that look real are refused before anything is sent (test cards are fine); the model sees only the selected payment, its 3-D Secure step titles and its dispute, plus a glossary, and is told to treat that as data; the system prompt limits it to payments topics; answers are scanned for card numbers; 10 questions a day on Free, 100 on Pro and trial; a failed model call is not counted. Questions go to Anthropic, so the privacy page lists it as a processor. Have the legal pages reviewed again before you switch the tutor on.
 
 ## Webhooks
 

@@ -174,7 +174,7 @@ footer{border-top:0;background:linear-gradient(90deg,var(--coral),var(--sun),var
 <div class="wrap">
 <header class="top">
   <a class="brand" href="/"><svg viewBox="0 0 40 40" aria-hidden="true"><rect x="2" y="26" width="36" height="10" rx="5" fill="#ffc23d"/><path d="M8 26V15h4v-3h4v3h2V9h4v6h2v-3h4v3h4v11z" fill="#ff6b57"/><path d="M17 26v-6a3 3 0 0 1 6 0v6z" fill="#fff"/><path d="M20 9V3l6 2.5L20 8" fill="#6a3df0"/></svg><span>Zanboxx</span></a>
-  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#settle">Settlement</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
+  <nav aria-label="Sections"><a href="#try">Try it</a><a href="#lab">3DS lab</a><a href="#cards">Test cards</a><a href="#script">Script</a><a href="#webhooks">Webhooks</a><a href="#cof">Card on file</a><a href="#settle">Settlement</a><a href="#tutor">Tutor</a><a href="#disputes">Disputes</a><a href="#api">API</a><a href="#plans">Plans</a></nav>
 </header>
 
 <section class="hero">
@@ -342,6 +342,22 @@ exactly like the list under "Test cards" below.</pre>
   </div>
   <div class="card tablewrap" id="stlList" style="margin-top:12px"></div>
   <div class="card hidden" id="stlDetail" style="margin-top:12px"></div>
+</section>
+
+<section class="block hidden" id="tutor">
+  <h2>Ask the tutor</h2>
+  <p class="sub">Pick a payment and ask why it behaved the way it did: a decline code, a 3-D Secure outcome, a dispute, a status. The tutor reads that payment (never a card number, none is stored) and answers about payments only. Questions go to an AI service, so never type real card data.</p>
+  <div class="card">
+    <p class="note" id="tutOff" style="margin:0 0 8px">The tutor is not switched on for this server.</p>
+    <fieldset id="tutForm">
+      <label for="tutPay">About which payment</label><select id="tutPay"></select>
+      <div id="tutLog" class="tablewrap" style="max-height:340px;overflow:auto;margin:10px 0" aria-live="polite"></div>
+      <label for="tutQ">Your question</label><textarea id="tutQ" rows="3" maxlength="800" style="width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:12px;background:var(--panel);font:inherit" placeholder="Why did this payment end with SBX-2020?"></textarea>
+      <div class="actions"><button class="primary" id="tutAsk">Ask</button><button id="tutClear">New conversation</button></div>
+      <p class="err" id="tutErr" role="alert"></p>
+      <p class="note" id="tutLeft" style="margin:0"></p>
+    </fieldset>
+  </div>
 </section>
 
 <section class="block hidden" id="disputes">
@@ -548,6 +564,7 @@ function renderSession() {
   if (!on) { LABLOG = null; LABID = null; $("#labOut").innerHTML = LAB_EMPTY; }
   $("#dash").classList.toggle("hidden", !on);
   $("#disputes").classList.toggle("hidden", !on);
+  $("#tutor").classList.toggle("hidden", !on);
   $("#cof").classList.toggle("hidden", !on);
   $("#settle").classList.toggle("hidden", !on);
   $("#whLocked").classList.toggle("hidden", on);
@@ -773,7 +790,7 @@ var refreshTimer = null;
 // Debounced so rapid lab runs do not eat the per-minute request allowance with background refreshes.
 function refreshAll() {
   if (!key || refreshTimer) return;
-  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); refreshSettlements(); } }, 3000);
+  refreshTimer = setTimeout(function () { refreshTimer = null; if (key) { refreshLedger(); refreshUsage(); refreshWebhook(); refreshDisputes(true); refreshAgreements(); refreshSettlements(); refreshTutor(); } }, 3000);
 }
 
 // ---------- 3-D Secure lab ----------
@@ -1237,6 +1254,38 @@ function saveText(name, text) {
   a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
 }
 function payoutText(b) { return b.payouts.map(function (p) { return (p.amount < 0 ? "-" : "") + fmt(Math.abs(p.amount)) + " " + p.currency; }).join(", "); }
+// ---- AI tutor ----
+var TUT_HIST = [], TUT_ON = false;
+function tutLine(role, text) {
+  var d = document.createElement("div"); d.style.cssText = "padding:8px 10px;margin:6px 0;border-radius:10px;white-space:pre-wrap;" + (role === "user" ? "background:var(--panel);border:1px solid var(--line)" : "border:1px solid var(--line)");
+  var b = document.createElement("strong"); b.textContent = role === "user" ? "You: " : "Tutor: "; d.appendChild(b); d.appendChild(document.createTextNode(text)); $("#tutLog").appendChild(d); $("#tutLog").scrollTop = 1e6;
+}
+function buildTutPay() {
+  var el = $("#tutPay"); if (!el) return;
+  var keep = el.value;
+  el.innerHTML = '<option value="">No payment (general question)</option>' + (LAST || []).slice(0, 30).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.id) + " · " + esc(p.transaction_type) + " · " + fmt(p.amount) + " " + esc(p.currency) + " · " + esc((p.status && p.status.code) || "") + "</option>"; }).join("");
+  if (keep && (LAST || []).some(function (p) { return p.id === keep; })) el.value = keep;
+}
+async function refreshTutor() {
+  if (!key) return;
+  buildTutPay();
+  var r = await api("GET", "/v1/tutor"); if (r.status !== 200) return;
+  TUT_ON = r.body.enabled; $("#tutOff").classList.toggle("hidden", TUT_ON); $("#tutForm").disabled = !TUT_ON;
+  $("#tutLeft").textContent = TUT_ON ? r.body.remaining_today + " of " + r.body.limit_per_day + " questions left today." : "";
+}
+$("#tutAsk").addEventListener("click", async function () {
+  var q = $("#tutQ").value.trim(); $("#tutErr").textContent = ""; if (!q) return;
+  $("#tutAsk").disabled = true; tutLine("user", q);
+  var body = { question: q, history: TUT_HIST.slice(-6) }; if ($("#tutPay").value) body.transaction_id = $("#tutPay").value;
+  var r = await api("POST", "/v1/tutor", body);
+  $("#tutAsk").disabled = false;
+  if (r.status !== 200) { $("#tutErr").textContent = errMsg(r); return; }
+  TUT_HIST.push({ role: "user", content: q }, { role: "assistant", content: r.body.answer }); $("#tutQ").value = "";
+  tutLine("assistant", r.body.answer); $("#tutLeft").textContent = r.body.remaining_today + " of " + r.body.limit_per_day + " questions left today.";
+});
+$("#tutClear").addEventListener("click", function () { TUT_HIST = []; $("#tutLog").innerHTML = ""; $("#tutErr").textContent = ""; });
+$("#tutPay").addEventListener("change", function () { TUT_HIST = []; $("#tutLog").innerHTML = ""; });
+
 async function refreshSettlements() {
   if (!key) return;
   var r = await api("GET", "/v1/settlements");

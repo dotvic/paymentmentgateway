@@ -213,6 +213,21 @@ function sweepDisputes(acc) {
 
 // ---------- clearing, settlement and payouts, see settlement.js ----------
 const STL = require("./settlement")({ bad, rnd });
+const TUTOR = require("./tutor")({ bad });
+// What the tutor may see: the user's own payment, its 3-D Secure steps (names and titles only) and its dispute. Never a card number: none is stored.
+function tutorContext(acc, id) {
+  const clip = (o, n) => JSON.stringify(o, null, 1).slice(0, n);
+  if (id) {
+    const p = acc.payments.find((x) => x.id === id);
+    if (!p) throw bad(404, "not_found", "Transaction not found");
+    let out = "Payment:\n" + clip(pub(p), 3500);
+    if (p._tds) out += "\n\n3-D Secure steps:\n" + p._tds.steps.map((s, i) => `${i + 1}. ${s.title || s.name}${s.phase ? " (" + s.phase + ")" : ""}`).join("\n") + "\nResult:\n" + clip(p._tds.result || null, 1200);
+    const d = (acc.disputes || []).find((x) => x.payment_id === p.id);
+    if (d) out += "\n\nDispute:\n" + clip(DSP.publicDispute(d), 2500);
+    return out;
+  }
+  return "Recent payments (newest first):\n" + acc.payments.slice(0, 8).map((p) => `${p.id} ${p.transaction_type} ${p.amount} ${p.currency} ${p.transaction_state} ${p.status && p.status.code} ${p.scheme || ""}`).join("\n");
+}
 const MCP = require("./mcp")({ port: () => (server.address() || {}).port || PORT, allowedOrigins: (process.env.MCP_ALLOWED_ORIGINS || "").split(",").map((x) => x.trim()).filter(Boolean), version: "1.0.0" });
 const validDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(Date.parse(d + "T00:00:00Z")) && new Date(d + "T00:00:00Z").toISOString().slice(0, 10) === d;
 function sendText(res, status, type, body, filename) {
@@ -769,6 +784,17 @@ async function route(req, res) {
   const acc = auth(req);
   const plan = planOf(acc);
   if (limited(buckets, acc.id, PLANS[plan].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down");
+
+  if (path === "/v1/tutor") {
+    if (m === "GET") return send(res, 200, { enabled: TUTOR.enabled(), remaining_today: TUTOR.remaining(acc, plan), limit_per_day: TUTOR.LIMITS[plan], note: "Questions are sent to an AI service (Anthropic) together with the payment you select. Never type real card data." });
+    if (m === "POST") {
+      const b = await readBody(req);
+      if (b.transaction_id !== undefined && typeof b.transaction_id !== "string") throw bad(400, "invalid_request", "transaction_id must be text");
+      const out = await TUTOR.ask(acc, plan, { question: b.question, history: b.history, ctx: TUTOR.enabled() ? tutorContext(acc, b.transaction_id) : "" });
+      save(acc);
+      return send(res, 200, out);
+    }
+  }
 
   if (m === "POST" && path === "/v1/payments") {
     const month = new Date().toISOString().slice(0, 7);

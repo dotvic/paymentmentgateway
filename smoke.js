@@ -1,14 +1,14 @@
 "use strict";
 // Run: npm test  (starts the server and a local webhook receiver, then exercises every flow)
 const { spawn } = require("child_process"), http = require("http"), crypto = require("crypto"), assert = require("assert");
-const PORT = 18080, HOOK = 18081, STRIPE_PORT = 18082, MAIL_PORT = 18083, BASE = `http://127.0.0.1:${PORT}`;
+const PORT = 18080, HOOK = 18081, STRIPE_PORT = 18082, MAIL_PORT = 18083, AI_PORT = 18095, BASE = `http://127.0.0.1:${PORT}`;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WH_SECRET = "whsec_test_secret";
 const srv = spawn("node", ["server.js"], {
   env: {
     ...process.env, PORT, DATA_FILE: `/tmp/dryrun-test-${Date.now()}.json`, ALLOW_PRIVATE_WEBHOOKS: "1", RETRY_MS: "0,200", SETTLE_DELAY_MS: "300", DISPUTE_REVIEW_DELAY_MS: "300",
     SIGNUPS_PER_HOUR: "50", MAIL_IP_PER_HOUR: "100", EMAIL_API_KEY: "re_test", EMAIL_FROM: "Zanboxx <login@example.test>", EMAIL_API_BASE: `http://127.0.0.1:${MAIL_PORT}`,
-    STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET,
+    STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET, ANTHROPIC_API_KEY: "sk-ant-mock", ANTHROPIC_API_BASE: `http://127.0.0.1:${AI_PORT}`, TUTOR_MODEL: "mock-model",
     STRIPE_API_BASE: `http://127.0.0.1:${STRIPE_PORT}`, PUBLIC_URL: "https://example.test", PRO_PRICE_LABEL: "EUR 19 per month",
     OPERATOR_NAME: "Test Operator Ltd", OPERATOR_ADDRESS: "1 Test Street", CONTACT_EMAIL: "legal@example.test",
   },
@@ -51,6 +51,18 @@ const receiver = http.createServer((req, res) => {
     res.writeHead(200); res.end();
   });
 }).listen(HOOK);
+
+const aiCalls = [];
+const mockAI = http.createServer((req, res) => {
+  let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => {
+    const body = JSON.parse(d || "{}"); aiCalls.push({ url: req.url, key: req.headers["x-api-key"], ver: req.headers["anthropic-version"], body });
+    const last = body.messages[body.messages.length - 1].content;
+    res.setHeader("content-type", "application/json");
+    if (/UPSTREAM-FAIL/.test(last)) { res.statusCode = 529; return res.end(JSON.stringify({ error: { type: "overloaded_error" } })); }
+    const text = /LEAK/.test(last) ? "Here you go: 4242 4242 4242 4242" : "Mock answer about " + (last.slice(0, 20));
+    res.end(JSON.stringify({ content: [{ type: "text", text }] }));
+  });
+}).listen(AI_PORT);
 
 let key;
 const api = async (method, path, body) => {
@@ -898,6 +910,31 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await api("POST", "/v1/payments", { request_id: "ct6-" + Math.random(), method: "card", transaction_type: "refund", amount: 1, currency: "EUR", parent_transaction_id: cA.id })).body.card_type, "commercial", "refund keeps parent's card type");
     }
 
+    // ---- AI tutor (mock model) ----
+    {
+      const keep = key; const ta = await api("POST", "/v1/accounts"); key = ta.body.api_key;
+      const st0 = (await api("GET", "/v1/tutor")).body; assert.equal(st0.enabled, true); assert.equal(st0.limit_per_day, 10); assert.equal(st0.remaining_today, 10);
+      const tp = (await api("POST", "/v1/payments", card("4000000000003220", { card_cvv: "123" }))).body; assert.equal(tp.status.code, "SBX-2020");
+      const ans = await api("POST", "/v1/tutor", { question: "Why is this payment still pending?", transaction_id: tp.id });
+      assert.equal(ans.status, 200, JSON.stringify(ans.body)); assert.ok(ans.body.answer.startsWith("Mock answer")); assert.equal(ans.body.remaining_today, 9);
+      const call = aiCalls[aiCalls.length - 1];
+      assert.equal(call.url, "/v1/messages"); assert.equal(call.key, "sk-ant-mock"); assert.equal(call.ver, "2023-06-01"); assert.equal(call.body.model, "mock-model");
+      assert.ok(call.body.system.includes("SBX-2020") && call.body.system.includes(tp.id) && call.body.system.includes("<user_data>"), "context and glossary reach the model");
+      assert.ok(!call.body.system.includes("4000000000003220"), "no card number in the context");
+      const before = aiCalls.length;
+      const real = await api("POST", "/v1/tutor", { question: "Is 4242 4242 4242 4242 valid?" }); assert.equal(real.status, 422); assert.equal(real.body.error.code, "real_card_data"); assert.equal(aiCalls.length, before, "refused before any model call");
+      assert.equal((await api("POST", "/v1/tutor", { question: "Is 4111 1111 1111 1111 a test card?" })).status, 200, "test cards are fine");
+      assert.equal((await api("POST", "/v1/tutor", { question: "" })).status, 400); assert.equal((await api("POST", "/v1/tutor", { question: "x".repeat(801) })).status, 400);
+      assert.equal((await api("POST", "/v1/tutor", { question: "hi", history: [{ role: "system", content: "x" }] })).status, 400);
+      assert.equal((await api("POST", "/v1/tutor", { question: "hi", transaction_id: "tx_ffffffffffffffff" })).status, 404);
+      assert.equal((await api("POST", "/v1/tutor", { question: "LEAK please" })).body.answer.startsWith("I can't show that"), true, "answers are scanned too");
+      const rem = (await api("GET", "/v1/tutor")).body.remaining_today;
+      assert.equal((await api("POST", "/v1/tutor", { question: "UPSTREAM-FAIL" })).status, 502); assert.equal((await api("GET", "/v1/tutor")).body.remaining_today, rem, "failed calls are not counted");
+      for (let i = 0; i < rem; i++) assert.equal((await api("POST", "/v1/tutor", { question: "q" + i, history: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] })).status, 200);
+      const cap = await api("POST", "/v1/tutor", { question: "one more" }); assert.equal(cap.status, 429); assert.equal(cap.body.error.code, "tutor_limit");
+      key = null; assert.equal((await api("GET", "/v1/tutor")).status, 401); key = keep;
+    }
+
     // ---- MCP server ----
     {
       const rpc = async (msg, hdrs = {}, k = key) => { const r = await fetch(BASE + "/mcp", { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...(k ? { authorization: `Bearer ${k}` } : {}), ...hdrs }, body: JSON.stringify(msg) }); const t = await r.text(); return { status: r.status, body: t ? JSON.parse(t) : null, headers: r.headers }; };
@@ -942,5 +979,5 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
 
     console.log("All checks passed");
   } catch (e) { console.error("FAILED:", e.stack.split("\n").slice(0,3).join(" | ")); process.exitCode = 1; }
-  finally { srv.kill(); receiver.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }
+  finally { srv.kill(); receiver.close(); mockAI.close(); mockStripe.close(); mockMail.close(); if (global.__mockS3) global.__mockS3.close(); }
 })();
