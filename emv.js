@@ -78,7 +78,8 @@ function verifyArqc(pan, psn, f, arqcHex, imk = TEST_KEYS.imk_ac) {
 
 // ---- BER-TLV ----
 const TAGS = {
-  "4F": "Application ID (AID)", "50": "Application label", "57": "Track 2 equivalent data", "5A": "Application PAN (masked here)", "5F20": "Cardholder name", "5F24": "Application expiry date", "5F2A": "Transaction currency code", "5F34": "PAN sequence number",
+  "6F": "File control information (FCI) template", "A5": "FCI proprietary template", "BF0C": "FCI issuer discretionary data", "61": "Directory entry", "70": "Record template", "77": "Response message template (format 2)", "83": "Command template", "87": "Application priority indicator", "94": "Application file locator (AFL)", "9F38": "Processing options data object list (PDOL)", "5F2D": "Language preference", "8A": "Authorisation response code (ARC)",
+  "4F": "Application ID (AID)", "50": "Application label", "57": "Track 2 equivalent data", "5A": "Application PAN", "5F20": "Cardholder name", "5F24": "Application expiry date", "5F2A": "Transaction currency code", "5F34": "PAN sequence number",
   "82": "Application interchange profile (AIP)", "84": "Dedicated file name", "8E": "Cardholder verification method (CVM) list", "95": "Terminal verification results (TVR)", "9A": "Transaction date", "9B": "Transaction status information (TSI)", "9C": "Transaction type",
   "9F02": "Amount, authorised", "9F03": "Amount, other (cashback)", "9F10": "Issuer application data", "9F1A": "Terminal country code", "9F26": "Application cryptogram", "9F27": "Cryptogram information data", "9F33": "Terminal capabilities", "9F34": "CVM results", "9F36": "Application transaction counter (ATC)", "9F37": "Unpredictable number",
 };

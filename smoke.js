@@ -927,6 +927,14 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const EMV = require("./emv"); const e1 = s1.body.emv;
       assert.equal(EMV.hex(EMV.generateArqc(V, "00", { amount: 12.5, other: 0, country: "0276", tvr: e1.tvr, currency: "EUR", date: new Date().toISOString().slice(2, 10).replace(/-/g, ""), type: "00", un: e1.un, aip: e1.aip, atc: e1.atc, iad: "0110A00003220000" })), e1.arqc);
       assert.equal(EMV.hex(EMV.generateArpc(V, "00", e1.atc, e1.arqc, "00")), e1.arpc);
+      // simulated EMV log: APDU exchange with consistent lengths and a verifiable end state
+      const lg = s1.body.emv_log; assert.equal(lg.map((x) => x.name).join("|"), "SELECT PPSE|SELECT application|GET PROCESSING OPTIONS|READ RECORD|Terminal risk management and cardholder verification|GENERATE AC (first)|Online authorisation|EXTERNAL AUTHENTICATE|GENERATE AC (second)");
+      for (const x of lg.filter((y) => y.command)) { const c = Buffer.from(x.command, "hex"); assert.equal(c.length, x.name === "READ RECORD" ? 5 : x.name === "EXTERNAL AUTHENTICATE" ? 5 + c[4] : 6 + c[4], x.name + " APDU length"); }
+      assert.equal(lg[0].status_word, "9000"); assert.ok(lg[5].response.includes(e1.arqc)); assert.equal(lg[5].decoded[0].children.find((t) => t.tag === "9F26").value, e1.arqc);
+      assert.ok(lg[7].command.startsWith("008200000A" + e1.arpc)); assert.equal(lg[8].decoded[0].children.find((t) => t.tag === "9F27").value, "40", "approved ends with a TC");
+      assert.equal((await api("GET", `/v1/payments/${s1.body.id}/card-present-log`)).body.emv_log.length, 9);
+      const badLog = (await cpost({ transaction_type: "sale", amount: 5, card_number: V, tamper: "arqc" })).body.emv_log; assert.ok(!badLog.some((x) => x.name === "EXTERNAL AUTHENTICATE"), "no ARPC for an unverifiable ARQC"); assert.equal(badLog[badLog.length - 1].decoded[0].children.find((t) => t.tag === "9F27").value, "00", "declined ends with an AAC");
+      const stripeLog = await cpost({ transaction_type: "sale", amount: 3, card_number: V, entry_mode: "fallback" }); assert.equal(stripeLog.body.emv_log, undefined); assert.match((await api("GET", `/v1/payments/${stripeLog.body.id}/card-present-log`)).body.emv_log_note, /did not use the chip/);
       // tampering is caught
       for (const t of ["arqc", "amount_after_signing", "unpredictable_number", "atc_replay"]) { const r = await cpost({ transaction_type: "sale", amount: 5, card_number: V, tamper: t }); assert.equal(r.body.approved, false, t); assert.equal(r.body.response_code, "82", t); assert.equal(r.body.transaction_state, "failed"); }
       // user-supplied EMV data is verified

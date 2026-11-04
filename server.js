@@ -804,7 +804,7 @@ async function route(req, res) {
     const p = acc.payments.find((x) => x.id === mt[1]);
     if (!p) throw bad(404, "not_found", "Transaction not found");
     if (!p._cpflow) throw bad(404, "not_found", "This transaction was not made through the card-present lab");
-    return send(res, 200, { transaction_id: p.id, cp: p.cp, flow: p._cpflow });
+    return send(res, 200, { transaction_id: p.id, cp: p.cp, flow: p._cpflow, emv_log: p._emvlog || null, emv_log_note: p._emvlog ? "Simulated: made-up test keys, simplified card data. Commands and responses are real APDU formats." : "This transaction did not use the chip (stripe, manual entry or a follow-up), so there is no EMV log. The flow above shows what happened." });
   }
 
   if (path === "/v1/tutor") {

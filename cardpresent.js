@@ -45,6 +45,49 @@ const REVERSAL_REASONS = ["timeout", "customer_cancelled", "device_failure", "ma
 const TAMPER = ["arqc", "amount_after_signing", "atc_replay", "unpredictable_number", "wrong_pin", "expired_card", "wrong_cvv"];
 const DEFAULT_PIN = "1234", MAX_PIN_TRIES = 3;
 
+
+// ---- simulated EMV log: the command and response APDUs between terminal and chip, then the online leg ----
+const AIDS = { visa: { aid: "A0000000031010", label: "VISA" }, mastercard: { aid: "A0000000041010", label: "MASTERCARD" }, amex: { aid: "A00000002501", label: "AMERICAN EXPRESS" } };
+const T = (tag, v) => EMV.tlvEncode(tag, Buffer.isBuffer(v) ? EMV.hex(v) : v);
+const cat = (...b) => Buffer.concat(b.map((x) => (Buffer.isBuffer(x) ? x : Buffer.from(x))));
+function apdu(n, name, from, to, cmd, rsp, why, tlv) {
+  const sw = rsp ? EMV.hex(rsp.subarray(rsp.length - 2)) : null;
+  return { n, name, direction: `${from} -> ${to}`, command: cmd ? EMV.hex(cmd) : null, response: rsp ? EMV.hex(rsp) : null, status_word: sw, explanation: why, ...(tlv ? { decoded: tlv } : {}) };
+}
+const ok9000 = Buffer.from([0x90, 0x00]);
+const dec = (b) => EMV.tlvDecode(b.subarray(0, b.length - 2));
+function openApduLog({ pan, psn, tc, expiry, svc, entryName, f, sentArqc, pinOnline }) {
+  const a = AIDS[tc.scheme], aid = EMV.fromHex(a.aid), log = [];
+  const ppseName = Buffer.from("2PAY.SYS.DDF01", "ascii");
+  const ppseRsp = cat(T("6F", cat(T("84", ppseName), T("A5", T("BF0C", T("61", cat(T("4F", aid), T("50", Buffer.from(a.label)), T("87", "01"))))))), ok9000);
+  log.push(apdu(1, "SELECT PPSE", "terminal", "card", cat([0x00, 0xa4, 0x04, 0x00, ppseName.length], ppseName, [0x00]), ppseRsp, `The terminal asks the card which payment applications it has. The card lists one: ${a.label}, AID ${a.aid}. A contactless terminal uses this directory; a contact terminal may try AIDs from its own list.`, dec(ppseRsp)));
+  const pdol = T("9F38", "9F3704"), fci = cat(T("6F", cat(T("84", aid), T("A5", cat(T("50", Buffer.from(a.label)), pdol, T("5F2D", Buffer.from("en")))))), ok9000);
+  log.push(apdu(2, "SELECT application", "terminal", "card", cat([0x00, 0xa4, 0x04, 0x00, aid.length], aid, [0x00]), fci, "The terminal selects the application. The card answers with its label and a PDOL (9F38): the list of terminal data it wants in the next command (here only the unpredictable number, tag 9F37).", dec(fci)));
+  const un = EMV.fromHex(f.un), gpoRsp = cat(T("77", cat(T("82", f.aip), T("94", "08010100"))), ok9000);
+  log.push(apdu(3, "GET PROCESSING OPTIONS", "terminal", "card", cat([0x80, 0xa8, 0x00, 0x00, un.length + 2], T("83", un), [0x00]), gpoRsp, `The terminal sends the PDOL data. The card replies with the AIP ${f.aip} (which security features it supports) and the AFL 08010100 (where its records are: SFI 1, record 1).`, dec(gpoRsp)));
+  const trk = pan + "D" + expiry + svc + "10000" + "F"; const t2 = EMV.fromHex(trk.length % 2 ? trk + "F" : trk);
+  const rec = cat(T("70", cat(T("57", t2), T("5A", EMV.fromHex(pan.length % 2 ? pan + "F" : pan)), T("5F24", EMV.fromHex(expiry + "31")), T("5F34", psn), T("8E", "0000000000000000" + "4203" + "5E03" + "1F03"))), ok9000);
+  log.push(apdu(4, "READ RECORD", "terminal", "card", Buffer.from([0x00, 0xb2, 0x01, 0x0c, 0x00]), rec, "The terminal reads the card's data: track 2 equivalent (57), card number (5A), expiry (5F24), PAN sequence number (5F34) and the CVM list (8E). The CVM list says: online PIN first (42), then signature (5E), then no CVM (1F). The chip's track 2 data has no usable CVV1: the cryptogram replaces it.", dec(rec)));
+  log.push({ n: 5, name: "Terminal risk management and cardholder verification", direction: "terminal", command: null, response: null, status_word: null, explanation: `The terminal checks floor limits and the exception list and sets TVR ${f.tvr} (${EMV.decodeTvr(f.tvr).join("; ") || "no flags"}). ${pinOnline ? "It follows the CVM list: the customer types the PIN and the PIN pad encrypts it; the PIN block travels to the issuer inside the online message, not to the card." : "No PIN is needed for this transaction."} TSI becomes F800.` });
+  const cdol = EMV.cdol1Data(f), genRsp = cat(T("77", cat(T("9F27", "80"), T("9F36", f.atc), T("9F26", sentArqc), T("9F10", f.iad))), ok9000);
+  log.push(apdu(6, "GENERATE AC (first)", "terminal", "card", cat([0x80, 0xae, 0x80, 0x00, cdol.length], cdol, [0x00]), genRsp, "The terminal asks for an ARQC (P1 = 80: go online). The command carries CDOL1: the amount, other amount, country, TVR, currency, date, type, random number, AIP, ATC and issuer data. The card signs all of it. The response has the cryptogram information data (CID 80 = ARQC), the counter (ATC), the cryptogram and the issuer application data.", dec(genRsp)));
+  return log;
+}
+// Adds the online leg and the second GENERATE AC to an open log, once the issuer has decided.
+function closeApduLog(log, ctx, approved, code, valid) {
+  const { pan, psn, f, arqc } = ctx, arcAscii = (approved ? "00" : code).slice(0, 2).padEnd(2, "0"), arc = Buffer.from(arcAscii, "ascii"), n = log.length;
+  let arpc = null;
+  if (valid) arpc = EMV.generateArpc(pan, psn, f.atc, arqc, arcAscii);
+  log.push({ n: n + 1, name: "Online authorisation", direction: "terminal -> acquirer -> issuer -> terminal", command: null, response: null, status_word: null,
+    explanation: valid ? `The terminal sends the ARQC ${arqc} and the transaction data to the issuer. The issuer recomputes the cryptogram, finds it correct, checks PIN, funds and limits, and answers ${approved ? "approved" : "declined"} with response code ${arcAscii} (ARC 0x${EMV.hex(arc)}) and an ARPC ${EMV.hex(arpc)} that proves the answer is from the real issuer.` : `The terminal sends the ARQC to the issuer. The issuer recomputes it, does not get the same value, and declines with response code ${arcAscii}. No ARPC is returned, because the issuer will not vouch for a transaction it cannot verify.` });
+  if (valid) log.push(apdu(n + 2, "EXTERNAL AUTHENTICATE", "terminal", "card", cat([0x00, 0x82, 0x00, 0x00, 0x0a], arpc, arc), ok9000, "The terminal gives the ARPC and the response code to the card. The card checks the ARPC with its own session key. If it were wrong, the card would set the TVR bit 'issuer authentication failed' and could refuse the transaction."));
+  const cdol2 = cat(arc), id = approved ? "40" : "00", cidDec = EMV.decodeCid(id);
+  const mac = approved ? EMV.retailMac(EMV.sessionKey(EMV.deriveCardMasterKey(EMV.TEST_KEYS.imk_ac, pan, psn), f.atc), cat(EMV.cdol1Data(f), arc)) : EMV.retailMac(EMV.sessionKey(EMV.deriveCardMasterKey(EMV.TEST_KEYS.imk_ac, pan, psn), f.atc), cat(EMV.cdol1Data(f), arc, [0xff]));
+  const rsp = cat(T("77", cat(T("9F27", id), T("9F36", f.atc), T("9F26", mac), T("9F10", f.iad))), ok9000);
+  log.push(apdu(log.length + 1, "GENERATE AC (second)", "terminal", "card", cat([0x80, 0xae, approved ? 0x40 : 0x00, 0x00, cdol2.length], cdol2, [0x00]), rsp, `The terminal tells the card the outcome (CDOL2 holds the response code). The card ends the transaction with ${cidDec.type}: ${cidDec.meaning}. ${approved ? "The TC is the proof of an approved transaction that goes into clearing." : "The AAC records that the card declined; the transaction ends."} (The second cryptogram here is a simplified MAC over CDOL1 plus the response code.)`, dec(rsp)));
+  return log;
+}
+
 module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
   const today = () => new Date().toISOString().slice(0, 10);
   const state = (acc) => (acc.cp = acc.cp || { atc: {}, tries: {}, pvv: {}, log: [] });
@@ -66,6 +109,7 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
   // Runs one card-present transaction. Returns { status, body }.
   function run(acc, b) {
     const cp = state(acc), flow = [];
+    let emvLog = null, emvCtx = null;
     const step = (title, detail, ok = true, data) => flow.push({ n: flow.length + 1, title, detail, ok, ...(data ? { data } : {}) });
     const channel = b.channel === undefined ? "pos" : b.channel;
     check(["pos", "atm"].includes(channel), 400, "invalid_request", "channel must be pos or atm");
@@ -115,7 +159,7 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
     check(/^\d{4}$/.test(expiry), 400, "invalid_request", "expiry must be YYMM");
     step("Card read", `${tc.scheme.toUpperCase()} test card ${MAG.maskPan(pan)}, expiry ${expiry.slice(2)}/${expiry.slice(0, 2)}, entry: ${entry.label}.`, true, { service_code: MAG.describeServiceCode(svc) });
 
-    const decline = (code, why, extra = {}) => finish(acc, cp, { code, why, tc, pan, amount, other, currency, type, tid, channel, entryName, entry, terminal, mcc, flow, step, b, ...extra });
+    const decline = (code, why, extra = {}) => finish(acc, cp, { code, why, tc, pan, amount, other, currency, type, tid, channel, entryName, entry, terminal, mcc, flow, step, b, emvLog, emvCtx, ...extra });
     // expiry
     if (expiry < today().slice(2, 4) + today().slice(5, 7)) { step("Expiry check", `The card expired in ${expiry.slice(2)}/${expiry.slice(0, 2)}.`, false); return decline("54", "The card has expired."); }
 
@@ -167,6 +211,8 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
       step("Terminal risk management", `TVR ${f.tvr}: ${EMV.decodeTvr(f.tvr).join("; ") || "no flags set"}.`, true, { tvr: EMV.decodeTvr(f.tvr) });
       step("Generate AC", `The card returns a cryptogram (CID 80 = ARQC, online authorisation requested): ${sent}. It is a MAC over the data above with a key unique to this card and this ATC (the ICC session key), so it proves the card is genuine and the data was not changed.`, true,
         { tlv: EMV.tlvDecode(Buffer.concat([EMV.tlvEncode("9F27", "80"), EMV.tlvEncode("9F26", sent), EMV.tlvEncode("9F36", f.atc), EMV.tlvEncode("9F10", f.iad)])) });
+      emvCtx = { pan, psn, f: seen, arqc: sent };
+      emvLog = openApduLog({ pan, psn, tc, expiry, svc, entryName, f: seen, sentArqc: sent, pinOnline: wantOnlinePin });
       const v = EMV.verifyArqc(pan, psn, seen, sent);
       if (!v.valid) {
         step("Issuer checks the ARQC", `The issuer recomputes the cryptogram from the data it received and gets ${v.expected}, not ${sent}. ${tamper === "arqc" ? "A bit of the cryptogram was changed." : tamper === "amount_after_signing" ? "The amount at the issuer differs from the amount the card signed." : tamper === "unpredictable_number" ? "The unpredictable number differs: the terminal changed it after signing." : "The data does not match what the card signed."} Declined.`, false, { expected: v.expected, received: sent });
@@ -214,7 +260,7 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
     // ---- issuer decision, by the same payment engine as every other test ----
     const outcome = tc.outcome.startsWith("3ds") ? "approve" : "auto";
     const res = createPayment(acc, { request_id: b.request_id || "cp_" + rnd(8), method: "card", transaction_type: type.maps, amount, currency, card_number: pan, scenario: outcome });
-    return finishPayment(acc, cp, res, { pan, tc, amount, other, currency, type, tid, channel, entryName, entry, terminal, mcc, flow, step, cvm, arqcInfo });
+    return finishPayment(acc, cp, res, { pan, tc, amount, other, currency, type, tid, channel, entryName, entry, terminal, mcc, flow, step, cvm, arqcInfo, emvLog, emvCtx });
   }
 
   function atmPayments(acc, last4) { return acc.payments.filter((p) => p.cp && p.cp.channel === "atm" && p.card_last4 === last4 && p.transaction_state === "success" && p.transaction_type === "purchase" && !p.voided); }
@@ -276,11 +322,11 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
       p.cp = { channel: c.channel, transaction_type: c.tid, entry_mode: c.entryName, pos_entry_mode: c.entry.code + (c.cvm === "online_pin" ? "1" : "2"), cvm: c.cvm, terminal_id: c.terminal, mcc: c.mcc, response_code: iso, ...(c.other ? { cashback_amount: c.other } : {}), ...(c.arqcInfo ? { atc: c.arqcInfo.atc } : {}) };
       if (c.type.oct) { p.transaction_type = "refund"; p.oct = true; p.cp.direction = "to_cardholder"; delete p.refunded_amount; }
       if (c.tid === "aft") p.cp.business_application_id = "AA";
-      p._cpflow = c.flow;
+      p._cpflow = c.flow; if (c.emvLog) p._emvlog = closeApduLog(c.emvLog, c.emvCtx, !!ok, iso, true);
     }
     c.step("Issuer decision", ok ? `The issuer approved (response ${iso}). ${c.arqcInfo ? "It returns an issuer authentication cryptogram (ARPC " + c.arqcInfo.arpc + ") so the card can check the answer really came from its issuer." : ""}` : `The issuer declined: ${CODES[iso] || res.body && res.body.status && res.body.status.message}.`, !!ok);
     if (c.type.oct) c.step("Original credit transaction", "Money flows TO the cardholder. In settlement this shows as a credit, like a refund without an original sale.");
-    const body = { ...(res.body && res.body.id ? { ...res.body, ...(p ? { transaction_type: p.transaction_type, ...(p.oct ? { oct: true } : {}) } : {}) } : { error: res.body }), approved: !!ok, response_code: iso, response_message: CODES[iso] || "Declined", cvm: c.cvm, ...(c.arqcInfo ? { emv: c.arqcInfo } : {}), ...(p ? { cp: p.cp } : {}), flow: c.flow };
+    const body = { ...(res.body && res.body.id ? { ...res.body, ...(p ? { transaction_type: p.transaction_type, ...(p.oct ? { oct: true } : {}) } : {}) } : { error: res.body }), approved: !!ok, response_code: iso, response_message: CODES[iso] || "Declined", cvm: c.cvm, ...(c.arqcInfo ? { emv: c.arqcInfo } : {}), ...(p ? { cp: p.cp } : {}), ...(p && p._emvlog ? { emv_log: p._emvlog } : {}), flow: c.flow };
     return log(acc, cp, { status: res.status, body }, c);
   }
   const tcCode = (o) => ({ decline: "05", nsf: "51", expired: "54", timeout: "91" }[o] || "05");
@@ -296,11 +342,11 @@ module.exports = function createCardPresent({ bad, rnd, r2, createPayment }) {
         p.status = { code: "SBX-4260", message: CODES[c.code] || c.why };
         p.cp = { channel: c.channel, transaction_type: c.tid, entry_mode: c.entryName, pos_entry_mode: c.entry.code + "0", terminal_id: c.terminal, mcc: c.mcc, response_code: c.code, decline_reason: c.why };
         if (c.type.oct) { p.transaction_type = "refund"; p.oct = true; delete p.refunded_amount; }
-        p._cpflow = c.flow; paymentBody = p;
+        p._cpflow = c.flow; if (c.emvLog) p._emvlog = closeApduLog(c.emvLog, c.emvCtx, false, c.code, !(c.emv && c.emv.valid === false)); paymentBody = p;
       }
     }
-    const body = { ...(paymentBody ? { ...paymentBody } : {}), transaction_type: c.tid, approved: false, response_code: c.code, response_message: CODES[c.code] || c.why, reason: c.why, ...(c.emv ? { emv: c.emv } : {}), flow: c.flow };
-    delete body._cpflow; delete body._tds; delete body._store;
+    const body = { ...(paymentBody ? { ...paymentBody } : {}), transaction_type: c.tid, approved: false, response_code: c.code, response_message: CODES[c.code] || c.why, reason: c.why, ...(c.emv ? { emv: c.emv } : {}), ...(paymentBody && paymentBody._emvlog ? { emv_log: paymentBody._emvlog } : {}), flow: c.flow };
+    delete body._cpflow; delete body._emvlog; delete body._tds; delete body._store;
     return log(acc, cp, { status: 200, body }, c);
   }
 

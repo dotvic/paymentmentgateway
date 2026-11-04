@@ -724,10 +724,12 @@ async function refreshLedger() {
   buildDpPay();
   $("#ledger").innerHTML = LAST.length ? "<table><thead><tr><th>ID</th><th>Type</th><th>Amount</th><th>State</th><th>Detail</th><th>Actions</th></tr></thead><tbody>" + LAST.map(function (p) {
     var acts = actionsFor(p).map(function (a) { return '<button class="small" data-act="' + a[0] + '" data-id="' + esc(p.id) + '" data-amt="' + a[2] + '">' + a[1] + "</button> "; }).join("");
-    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + (p.authentication ? '<button class="small" data-lab="' + esc(p.id) + '">3DS log</button> ' : "") + (canDispute(p) ? '<button class="small" data-dispute="' + esc(p.id) + '">Dispute</button>' : "") + "</td></tr>";
+    return '<tr><td class="mono">' + esc(p.id) + "</td><td>" + esc(p.transaction_type) + "</td><td>" + fmt(p.amount) + " " + esc(p.currency) + '</td><td><span class="badge ' + esc(p.transaction_state) + '">' + esc(p.transaction_state) + '</span></td><td class="wrapcell">' + esc(detail(p)) + "</td><td>" + acts + (p.authentication ? '<button class="small" data-lab="' + esc(p.id) + '">3DS log</button> ' : "") + (p.cp && p.cp.entry_mode ? '<button class="small" data-cplog="' + esc(p.id) + '">' + (p.cp.entry_mode === "chip" || p.cp.entry_mode === "contactless" ? "EMV log" : "Card log") + "</button> " : "") + (canDispute(p) ? '<button class="small" data-dispute="' + esc(p.id) + '">Dispute</button>' : "") + "</td></tr>";
   }).join("") + "</tbody></table>" : '<p class="note" style="margin:0">No payments yet. Send one above.</p>';
 }
 $("#ledger").addEventListener("click", async function (e) {
+  var cl = e.target.closest("button[data-cplog]");
+  if (cl) { cpShowLog(cl.dataset.cplog); return; }
   var db = e.target.closest("button[data-dispute]");
   if (db) { $("#dpPay").value = db.dataset.dispute; onDpPay(); $("#disputes").scrollIntoView({ behavior: "smooth" }); return; }
   var lb = e.target.closest("button[data-lab]");
@@ -1367,7 +1369,7 @@ function cpRender(r) {
   if (b.balance) h += '<p class="take">Balance: ' + fmt(b.balance.available) + " " + esc(b.balance.currency) + "</p>";
   if (b.statement) h += '<div class="tablewrap"><table><thead><tr><th>Date</th><th>Type</th><th>Amount</th></tr></thead><tbody>' + (b.statement.map(function (s) { return "<tr><td>" + esc(s.date.slice(0, 16).replace("T", " ")) + "</td><td>" + esc(s.type) + "</td><td>" + fmt(s.amount) + "</td></tr>"; }).join("") || '<tr><td colspan="3">No ATM transactions yet</td></tr>') + "</tbody></table></div>";
   if (b.emv) h += '<div class="tablewrap"><table><tbody><tr><th>ARQC (card)</th><td><code>' + esc(b.emv.arqc) + "</code>" + (b.emv.expected_arqc ? " · issuer expected <code>" + esc(b.emv.expected_arqc) + "</code>" : "") + "</td></tr><tr><th>ATC</th><td><code>" + esc(b.emv.atc) + "</code></td></tr>" + (b.emv.arpc ? "<tr><th>ARPC (issuer)</th><td><code>" + esc(b.emv.arpc) + "</code></td></tr>" : "") + (b.emv.tvr_flags ? "<tr><th>TVR " + esc(b.emv.tvr) + "</th><td>" + (b.emv.tvr_flags.map(esc).join("; ") || "no flags") + "</td></tr>" : "") + "</tbody></table></div>";
-  h += '<h3 style="margin:12px 0 0;font-size:16px">What happened, step by step</h3>' + cpFlowHtml(b.flow || []);
+  h += emvLogHtml(b.emv_log) + '<h3 style="margin:12px 0 0;font-size:16px">What happened, step by step</h3>' + cpFlowHtml(b.flow || []);
   out.innerHTML = h; $("#cpErr").textContent = ""; refreshAll();
 }
 async function cpRun() {
@@ -1382,6 +1384,27 @@ async function cpRun() {
     if (CPMODE === "mag") { if ($("#cpTrack").value.trim()) b.track2 = $("#cpTrack").value.trim(); if ($("#cpSvc").value && $("#cpSvc").value !== "201") b.service_code = $("#cpSvc").value; }
   }
   $("#cpRun").disabled = true; var r = await api("POST", "/v1/card-present", b); $("#cpRun").disabled = false; cpRender(r);
+}
+function tlvHtml(list, depth) {
+  return list.map(function (t) { return '<div style="margin-left:' + (depth * 14) + 'px"><code>' + esc(t.tag) + "</code> " + esc(t.name) + (t.children ? "" : ": <code>" + esc(t.value) + "</code>") + "</div>" + (t.children ? tlvHtml(t.children, depth + 1) : ""); }).join("");
+}
+function emvLogHtml(log) {
+  if (!log || !log.length) return "";
+  return '<h3 style="margin:12px 0 0;font-size:16px">Simulated EMV log (terminal and chip)</h3><p class="note" style="margin:4px 0 8px">Commands and responses are in real APDU format (hex). Keys and card data are made-up test values.</p>' +
+    log.map(function (e) {
+      return '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin:8px 0"><strong>' + e.n + ". " + esc(e.name) + '</strong> <span class="note">' + esc(e.direction) + (e.status_word ? " · status " + esc(e.status_word) : "") + "</span>" +
+        (e.command ? '<div class="note" style="margin-top:6px">Command</div><code style="display:block;word-break:break-all">' + esc(e.command) + "</code>" : "") +
+        (e.response ? '<div class="note" style="margin-top:6px">Response</div><code style="display:block;word-break:break-all">' + esc(e.response) + "</code>" : "") +
+        (e.decoded ? '<div class="note" style="margin-top:6px">Decoded</div><div style="word-break:break-all;font-size:14px">' + tlvHtml(e.decoded, 0) + "</div>" : "") +
+        '<p style="margin:8px 0 0">' + esc(e.explanation) + "</p></div>";
+    }).join("");
+}
+async function cpShowLog(id) {
+  var r = await api("GET", "/v1/payments/" + id + "/card-present-log"); $("#cplab").scrollIntoView({ behavior: "smooth" });
+  if (r.status !== 200) { $("#cpOut").innerHTML = ""; $("#cpErr").textContent = errMsg(r); return; }
+  $("#cpErr").textContent = "";
+  $("#cpOut").innerHTML = '<div class="take" style="padding:10px 12px;border-radius:12px;border:2px solid var(--line)"><strong>' + esc(id) + "</strong> · " + esc(r.body.cp.channel.toUpperCase()) + " · " + esc(r.body.cp.transaction_type) + " · entry " + esc(r.body.cp.entry_mode) + " · response " + esc(r.body.cp.response_code) + "</div>" +
+    (r.body.emv_log ? emvLogHtml(r.body.emv_log) : '<p class="note">' + esc(r.body.emv_log_note) + "</p>") + '<h3 style="margin:12px 0 0;font-size:16px">What happened, step by step</h3>' + cpFlowHtml(r.body.flow);
 }
 async function refreshCpLab() {
   if (!key) return;
