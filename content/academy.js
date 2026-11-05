@@ -163,4 +163,26 @@ module.exports = [
       T("mismatch", "Reuse a key with a different request and see it refused.", "Call the API: same Idempotency-Key, different amount.", (a) => !!(a.ctl && a.ctl.mismatches > 0)),
       T("recover", "Recover from a simulated timeout without charging twice.", "Tick the timeout box, authorize, then retry with the key.", (a) => !!(a.ctl && a.ctl.recovered > 0)),
     ] },
+  { id: "tokenization", title: "Tokenization and wallets", level: "Intermediate", minutes: 40, summary: "How tokens replace card numbers, how network tokens are provisioned and restricted, and why they cut fraud and raise approvals.",
+    lessons: [
+      { title: "Why card numbers are a liability", md: "A card number (**PAN**) is valid anywhere. A merchant that stores it becomes a target, and a breach hands criminals numbers they can use at any shop. Holding card numbers also brings heavy security obligations (PCI DSS). Keeping the PAN out of your systems is the cheapest security you can buy." },
+      { title: "Gateway tokens and network tokens", md: "A **gateway token** is issued by your payment provider for a card it vaults. It is useful, but only with that provider. A **network token** is issued through the card network and issuer, is tied to a **requestor** (a wallet or merchant) and works across the network within its **domain**. Digital wallets use network tokens so the real PAN never reaches the merchant." },
+      { title: "The token lifecycle", md: "A token is **provisioned**, then **activated** after the issuer checks the cardholder (a code, an app approval). It can be **suspended** and **resumed** if the device is lost or fraud is suspected, and **deleted** when the customer removes it. None of this cancels the card. Provisioning is a favourite target for fraudsters, so identity checks at this step matter most." },
+      { title: "Domain and cryptograms", md: "A token's **domain** restricts where it works: one merchant, one channel (online or in-store), one device. Each payment also carries a **cryptogram** that is used once, so recording a payment and replaying it fails. Stolen tokens are therefore much less valuable than stolen card numbers." },
+      { title: "Benefits and limits", md: "Benefits: less fraud, smaller PCI scope, and automatic **card updates** when a card is reissued, which often lifts approval rates because stored credentials stay fresh. Limits: a token does not prove who the customer is, you now depend on the token service, and tokens must still be handled carefully." },
+    ],
+    quiz: [
+      Q("What is the main security gain of a network token?", ["It is shorter", "It only works within its domain and with a fresh cryptogram", "It never expires", "It replaces the cardholder"], 1, "A stolen token is hard to use elsewhere or to replay."),
+      Q("Who can use a gateway token?", ["Any merchant", "Only the provider that issued it", "Only banks", "Only wallets"], 1, "Vault tokens are tied to the provider that stores the card."),
+      Q("What happens to a network token when the card is reissued?", ["It must be deleted", "It can be updated by the issuer without the merchant doing anything", "The merchant must ask for new details", "It is blocked for ever"], 1, "Lifecycle updates keep stored credentials fresh."),
+      Q("Which step of the token lifecycle most needs strong identity checks?", ["Deleting", "Provisioning and activation", "Suspension", "Expiry"], 1, "Fraudsters try to provision tokens onto their own devices."),
+      Q("What does a token cryptogram stop?", ["Typing mistakes", "Replaying a recorded payment", "Declines", "Refunds"], 1, "Each payment needs a new one-time value."),
+    ],
+    tasks: [
+      T("provision", "Provision a token and activate it in the lab.", "Open /labs/tokens; the test code is 123456.", (a) => !!(a.tok && a.tok.activated > 0)),
+      T("pay", "Pay with the token.", "Press Pay with matching merchant and channel.", (a) => !!(a.tok && a.tok.paid > 0)),
+      T("domain", "See a payment refused because of the token's domain.", "Pay from a different merchant ID.", (a) => !!(a.tok && a.tok.domain_blocked > 0)),
+      T("replay", "See a reused cryptogram refused.", "Tick 'reuse the previous cryptogram' and pay again.", (a) => !!(a.tok && a.tok.replay_blocked > 0)),
+      T("lifecycle", "Suspend a token and see a payment refused, then reissue the card.", "Use the lifecycle buttons.", (a) => !!(a.tok && a.tok.state_blocked > 0 && a.tok.reissued > 0)),
+    ] },
 ];

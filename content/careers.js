@@ -3,7 +3,7 @@
 module.exports = [
   { id: "payments-engineer", title: "Payments engineer", summary: "Builds and runs the code that moves money: gateway integrations, webhooks, reconciliation.",
     day: "Integrates acquirer and wallet APIs, handles retries and idempotency, debugs declines, keeps ledgers consistent.",
-    skills: [["API security and safe retries", "api-security"], ["Authorisation, capture and refunds", "card-payments"], ["Strong authentication (3-D Secure)", "three-d-secure"], ["Recurring and merchant-initiated payments", "recurring"], ["Settlement and reconciliation", "settlement"]],
+    skills: [["Tokenization and wallets", "tokenization"], ["API security and safe retries", "api-security"], ["Authorisation, capture and refunds", "card-payments"], ["Strong authentication (3-D Secure)", "three-d-secure"], ["Recurring and merchant-initiated payments", "recurring"], ["Settlement and reconciliation", "settlement"]],
     labs: "Use the sandbox API, the webhook inspector and the card controls and idempotency lab; script the flows with the MCP server.", learn: ["knowledge/webhooks", "knowledge/endpoints"] },
   { id: "risk-fraud-analyst", title: "Risk and fraud analyst", summary: "Decides which payments to trust and how to handle disputes.",
     day: "Reviews alerts, tunes rules, answers chargebacks with evidence, watches fraud and dispute ratios.",
@@ -19,7 +19,7 @@ module.exports = [
     labs: "Run the EMV, magstripe, POS and ATM labs and read the simulated APDU log.", learn: ["knowledge/card-present"] },
   { id: "product-manager", title: "Payments product manager", summary: "Decides what a payment product should do and how it makes money.",
     day: "Writes requirements, balances approval rates against fraud and fees, works with compliance and engineering.",
-    skills: [["Card payment basics", "card-payments"], ["Strong authentication", "three-d-secure"], ["Recurring payments", "recurring"], ["Settlement and fees", "settlement"]],
+    skills: [["Card payment basics", "card-payments"], ["Strong authentication", "three-d-secure"], ["Tokenization and wallets", "tokenization"], ["Recurring payments", "recurring"], ["Settlement and fees", "settlement"]],
     labs: "Test checkout outcomes and compare fee models in the interchange report.", learn: ["knowledge/payment-lifecycle"] },
   { id: "founder", title: "Fintech founder", summary: "Builds a payments or fintech business.",
     day: "Validates a problem, picks a regulatory route, chooses partners and pricing, launches.",

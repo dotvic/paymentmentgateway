@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 8);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 9);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1129,6 +1129,27 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await A2("POST", `/v1/cards/${cid}/authorize`, { amount: 1, channel: "online", country: "PL", mcc: "5411" })).body.reason_code, "CARD_FROZEN");
       assert.ok((await A2("GET", `/v1/cards/${cid}/audit`)).body.data.some((x) => x.event === "card.freeze"));
       assert.equal((await A2("POST", "/v1/academy/courses/api-security/tasks/check")).body.tasks_done, 5);
+      // tokenization
+      assert.equal((await raw("POST", "/v1/tokens", {})).status, 401);
+      const acct3 = (await raw("POST", "/v1/accounts")).body.api_key, A3 = (m, p, bd) => raw(m, p, bd, acct3);
+      assert.equal((await A3("POST", "/v1/tokens", { card_number: "4242424242424242" })).status, 400, "real-looking card refused");
+      const tk1 = await A3("POST", "/v1/tokens", { card_number: "4111111111111111", requestor: "wallet", domain: { channel: "online", merchant_id: "shop-1" } }); assert.equal(tk1.status, 201); assert.equal(tk1.body.token.state, "pending_activation"); assert.ok(tk1.body.token.token.startsWith("9") && !JSON.stringify(tk1.body).includes("4111111111111111"));
+      const tid = tk1.body.token.id;
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/cryptogram`, { amount: 5, merchant_id: "shop-1" })).status, 409, "inactive token gives no cryptogram");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/activate`, { code: "000000" })).status, 400); assert.equal((await A3("POST", `/v1/tokens/${tid}/activate`, { code: "123456" })).body.token.state, "active");
+      const cg1 = (await A3("POST", `/v1/tokens/${tid}/cryptogram`, { amount: 25, merchant_id: "shop-1" })).body.cryptogram;
+      const pay1 = await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 25, merchant_id: "shop-1", channel: "online", cryptogram: cg1 }); assert.equal(pay1.body.approved, true); assert.equal(pay1.body.card_last4, "1111");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 25, merchant_id: "shop-1", channel: "online", cryptogram: cg1 })).body.reason_code, "CRYPTOGRAM_REUSED");
+      const cg2 = (await A3("POST", `/v1/tokens/${tid}/cryptogram`, { amount: 25, merchant_id: "shop-2" })).body.cryptogram;
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 25, merchant_id: "shop-2", channel: "online", cryptogram: cg2 })).body.reason_code, "DOMAIN_MERCHANT");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 25, merchant_id: "shop-1", channel: "pos", cryptogram: cg2 })).body.reason_code, "DOMAIN_CHANNEL");
+      const cg3 = (await A3("POST", `/v1/tokens/${tid}/cryptogram`, { amount: 10, merchant_id: "shop-1" })).body.cryptogram;
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 99, merchant_id: "shop-1", channel: "online", cryptogram: cg3 })).body.reason_code, "CRYPTOGRAM_AMOUNT");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/suspend`)).body.token.state, "suspended"); assert.equal((await A3("POST", `/v1/tokens/${tid}/pay`, { amount: 10, merchant_id: "shop-1", channel: "online", cryptogram: cg3 })).body.reason_code, "TOKEN_SUSPENDED");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/resume`)).body.token.state, "active"); const before = tk1.body.token.token;
+      const ru = await A3("POST", `/v1/tokens/${tid}/card-update`); assert.equal(ru.body.token.token, before, "token number survives a card reissue"); assert.notEqual(ru.body.token.card.last4, "1111");
+      assert.equal((await A3("POST", `/v1/tokens/${tid}/delete`)).body.token.state, "deleted"); assert.equal((await A3("POST", `/v1/tokens/${tid}/resume`)).status, 409);
+      assert.equal((await A3("POST", "/v1/academy/courses/tokenization/tasks/check")).body.tasks_done, 5);
       // intelligence
       const art = { title: "Note <script>x</script>", summary: "Summary", markdown: "# Hi\n\n<img src=x onerror=alert(1)> [bad](javascript:alert(1))" };
       assert.equal((await raw("PUT", "/admin/articles/smoke-note", art)).status, 401);
@@ -1147,7 +1168,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await raw("GET", "/v1/careers/jobs?q=warsaw")).body.data.length, 1); assert.match((await raw("GET", "/careers/jobs/" + jc.body.id)).text, /Payments engineer/);
       assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200); assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200);
       assert.equal((await raw("GET", "/v1/careers/jobs")).body.data.length, 1, "one reporter counted once");
-      const prof = (await A("GET", "/v1/careers/profile")).body; assert.ok(prof.completed.includes("Card payments fundamentals") && prof.paths.find((p) => p.id === "payments-engineer").percent === 20);
+      const prof = (await A("GET", "/v1/careers/profile")).body; assert.ok(prof.completed.includes("Card payments fundamentals") && prof.paths.find((p) => p.id === "payments-engineer").percent === 17);
       assert.equal((await A("DELETE", "/v1/careers/jobs/" + jc.body.id)).status, 200);
       // startups
       assert.equal((await raw("GET", "/v1/startups/roadmap")).body.stages.length, 6);

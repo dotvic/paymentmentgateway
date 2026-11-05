@@ -187,6 +187,35 @@ Webhooks need **replay protection** (a timestamp in the signature, and storing e
 
 In the [card controls and idempotency lab](/labs/controls), tick "simulate a timeout", authorize, then press the button again, with and without the key.` });
 
+pages.push({ slug: "tokenization", title: "Tokenization", category: "Concepts", summary: "How tokens replace card numbers, what a token lifecycle looks like, and why a stolen token is worth less.", markdown: `## The problem with card numbers
+
+A card number (the **PAN**) works anywhere. If a merchant stores it and is breached, every stolen number can be used elsewhere. Storing card numbers also puts the merchant under heavy security rules (PCI DSS).
+
+## What a token does
+
+A **token** is a stand-in value. The merchant or wallet keeps the token, and the real number stays in one protected place. Two common kinds:
+
+| Kind | Issued by | Works with |
+|---|---|---|
+| Gateway (vault) token | Your payment provider | That provider only |
+| Network token | The card network, through the issuer | Across the network, within its domain |
+
+## Network token controls
+
+- **Requestor**: the wallet or merchant that asked for it. The token is bound to it.
+- **Domain**: where it may be used, such as one merchant or only online.
+- **Cryptogram**: each payment carries a one-time value. A recorded payment cannot be replayed.
+- **Lifecycle**: it is provisioned, activated after identity checks, can be suspended and resumed, and deleted, all without cancelling the card.
+- **Card updates**: when the card is reissued or expires, the issuer updates the token behind the scenes. The merchant does not need new details, which is why network tokens often raise approval rates.
+
+## What tokens do not do
+
+A token does not authenticate the customer. It also moves trust to whoever runs the token service. Fraudsters still try to get tokens provisioned onto their own devices, so provisioning needs strong identity checks.
+
+## Try it
+
+The [tokenization lab](/labs/tokens) simulates provisioning, activation, domain checks, cryptograms, suspension and a card reissue, with test cards only. The [tokenization course](/academy/tokenization) walks through it.` });
+
 pages.push({ slug: "test-cards", title: "Test cards", category: "Reference", summary: "Every test card for Visa, Mastercard and American Express, and what each one does.",
   markdown: "Use these numbers with any future expiry. Visa and Mastercard use a 3-digit security code, American Express a 4-digit one. The PIN for card-present tests is `1234`. Real card numbers are always refused.\n\n" +
     Object.values(SCH.SCHEMES).map((s) => `## ${s.name}\n\n${s.note}\n\n| Number | What it does |\n| --- | --- |\n` + SCH.TEST_CARDS.filter((c) => c.scheme === s.id).map((c) => `| \`${c.number}\` | ${c.label} |`).join("\n")).join("\n\n") });

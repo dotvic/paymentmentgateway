@@ -76,4 +76,13 @@ module.exports = [
   ["MCC (merchant category code)", "A four-digit code that says what kind of business a merchant is, such as 5411 for grocery stores. Controls and risk rules use it."],
   ["Audit log", "A time-ordered record of who did what and when, such as who froze a card. It is kept so that questions can be answered later."],
   ["Gateway timeout", "The caller stopped waiting before the server answered. The work may or may not have been done, so check the outcome or retry with an idempotency key before charging again."],
+  ["Token", "A substitute value that stands in for a card number so the real number is not stored or sent around. It is useless to a thief outside the place it was issued for."],
+  ["Tokenization", "Replacing sensitive data, such as a card number, with a token. The real value is kept in one protected place."],
+  ["Network token", "A token issued by the card network itself, tied to a specific wallet, device or merchant and used with a one-time cryptogram. It can be updated when the card is reissued."],
+  ["Gateway token (vault token)", "A token issued by a payment provider for a card it stores. It only works with that provider, unlike a network token that works across the network."],
+  ["Token requestor", "The party that asks for a token: a wallet, a merchant or another service. The token is bound to it."],
+  ["Token domain", "The limits a token is valid in: for example one merchant, one channel such as online or in-store, or one device."],
+  ["Token cryptogram", "A one-time value generated for each token payment and checked by the issuer. A copy of a past payment cannot be replayed."],
+  ["Token lifecycle", "The stages of a token: provisioning, activation after identity checks, use, suspension, resumption and deletion."],
+  ["PAN (primary account number)", "The long number on the front of a card. It is the most sensitive piece of card data and the one tokenization tries to keep out of merchants' systems."],
 ];
