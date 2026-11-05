@@ -1,6 +1,8 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json server.js tds.js store.js backup.js schemes.js disputes.js settlement.js mcp.js tutor.js glossary.js emv.js mag.js cardpresent.js ./
+COPY package.json server.js tds.js store.js backup.js schemes.js disputes.js settlement.js mcp.js tutor.js glossary.js emv.js mag.js cardpresent.js siteui.js site.js md.js ./
+COPY sections ./sections
+COPY content ./content
 COPY public ./public
 # Runs as root on purpose: Fly mounts the /data volume owned by root, and a non-root user could not write to it.
 # The machine is an isolated VM, so this is acceptable here.

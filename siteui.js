@@ -27,7 +27,7 @@ const SITE_CSS = `
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:16px;margin:8px 0 28px}
 .sec{display:block;background:var(--panel);border:2px solid var(--line);border-radius:18px;padding:20px;text-decoration:none;color:var(--ink);border-top:8px solid var(--c,#6a3df0)}
 .sec:hover{border-color:var(--c,#6a3df0)}.sec h2{margin:0 0 2px;font-size:22px;letter-spacing:-.02em}.sec .sub{color:var(--c,#6a3df0);font-weight:600;margin:0 0 10px}.sec p{margin:0;color:var(--mute)}
-.page{padding:12px 0 56px}.page h1{max-width:none;font-size:clamp(30px,5vw,48px)}
+.page{padding-top:12px;padding-bottom:56px}.page h1{max-width:none;font-size:clamp(30px,5vw,48px)}
 .panel{background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:16px 18px;margin:14px 0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
 .tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);margin:0 6px 4px 0;background:var(--paper)}

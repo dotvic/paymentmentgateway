@@ -694,11 +694,14 @@ function handleStripeEvent(ev) {
   }
 }
 
+const authed = (req) => { const a = auth(req), pl = planOf(a); if (limited(buckets, a.id, PLANS[pl].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down"); return a; };
+const SITE = require("./site")({ send, bad, readBody, rnd, DB, save, saveMaps, limited, clientIp, authed, planOf: (a) => planOf(a), escHtml, publicUrl: PUBLIC_URL });
 async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
   if (m === "GET" && ASSETS[path]) { res.writeHead(200, { "content-type": ASSETS[path].type, "content-length": ASSETS[path].body.length, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" }); return res.end(ASSETS[path].body); }
+  if (await SITE.handle(req, res, path, m)) return;
   if (m === "GET" && path === "/v1/schemes") return send(res, 200, { schemes: SCH.publicProfiles(), dispute_categories: DSP.CATEGORIES, note: "Simulated behaviour only. Zanboxx never connects to the real card networks. Codes are simplified for teaching." });
   if (m === "GET" && path === "/v1/config") return send(res, 200, { billing: billingOn(), pro_price: PRO_LABEL || null, email: emailOn() });
 
@@ -711,6 +714,7 @@ async function route(req, res) {
     const a = crypto.createHash("sha256").update(got).digest(), b = crypto.createHash("sha256").update(want).digest();
     if (!crypto.timingSafeEqual(a, b)) throw bad(401, "unauthorized", "Missing or wrong admin token");
     adminFails.delete(clientIp(req));
+    if (await SITE.admin(req, res, path, m)) return;
     if (m === "GET" && path === "/admin/status") {
       const accounts = Object.values(DB.accounts);
       return send(res, 200, {
