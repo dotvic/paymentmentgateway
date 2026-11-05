@@ -28,7 +28,7 @@ module.exports = function ({ html, notFound, ctx, UI, MD, esc }) {
   function indexPage() {
     const list = Object.values(jobs()).filter(live).sort((a, b) => String(b.approved_at).localeCompare(String(a.approved_at))).slice(0, 200);
     const body = `<div class="crumbs">Fintech Careers</div><h1>Fintech Careers</h1><p class="lede">Jobs and professional growth. A moderated board for payments and fintech roles, and career paths that show what to learn.</p>
-<div class="row"><a class="primary" style="text-decoration:none;padding:10px 16px;border-radius:12px;display:inline-block" href="/careers/paths">Explore career paths</a> <a href="/careers/post">Post a job</a> <a href="/careers/profile">My skills profile</a></div>
+<p><a href="/careers/paths">Explore career paths</a> · <a href="/careers/post">Post a job</a> · <a href="/careers/profile">My skills profile</a></p>
 <h2>Open roles</h2><input class="f" id="q" type="search" placeholder="Search title, company, location" aria-label="Search jobs" autocomplete="off"><p class="hint" id="n"></p>
 <div id="list">${list.length ? list.map(jobCard).join("") : '<p class="panel">No open roles yet. Be the first to <a href="/careers/post">post one</a>.</p>'}</div>
 <p class="hint">Listings are posted by third parties and checked for basic rules only. Zanboxx does not employ, recommend or vouch for the employers. Never pay to apply. Spot a problem? Use “Report” on the listing.</p>`;
@@ -38,7 +38,7 @@ module.exports = function ({ html, notFound, ctx, UI, MD, esc }) {
   function jobPage(j) {
     const body = `<div class="crumbs"><a href="/careers">Fintech Careers</a> / Job</div><h1>${esc(j.title)}</h1><p class="lede">${esc(j.company)} · ${esc(j.location)} <span class="tag">${esc(j.type)}</span>${j.remote ? ' <span class="tag">remote</span>' : ""}${j.salary ? ` <span class="tag">${esc(j.salary)}</span>` : ""}</p>
 <article class="prose">${MD.render(j.description, { shift: 1 }).html}</article>
-<p><a class="primary" style="text-decoration:none;padding:10px 16px;border-radius:12px;display:inline-block" href="${esc(j.apply_url)}" rel="noopener noreferrer nofollow ugc" target="_blank">Apply on the employer's site</a></p>
+<p><a href="${esc(j.apply_url)}" rel="noopener noreferrer nofollow ugc" target="_blank">Apply on the employer's site</a></p>
 <p class="hint">Posted ${esc(String(j.approved_at || j.created_at).slice(0, 10))}, listed until ${esc(j.expires_at.slice(0, 10))}. You leave Zanboxx when you apply. Never pay to apply. <button type="button" id="rep" class="small">Report this listing</button> <span id="rm"></span></p>`;
     const script = `document.getElementById("rep").onclick=async function(){var r=await Z.api("POST","/v1/careers/jobs/${j.id}/report");document.getElementById("rm").textContent=r.status===200?"Thanks, we will look at it.":Z.msg(r);};`;
     return UI.shell({ title: `${j.title} at ${j.company} – Zanboxx Careers`, description: `${j.title} at ${j.company}, ${j.location}`, active: "careers", body, script });

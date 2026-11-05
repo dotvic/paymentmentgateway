@@ -80,6 +80,21 @@ curl -X PUT $HOST/v1/webhook -H "Authorization: Bearer $KEY" -H "Content-Type: a
 
 Methods: `card`, `paypal`, `ideal`, `sepa`. Currencies: EUR, USD, GBP. Optional `scenario`: `auto` (default), `approve`, `decline`, `timeout`, `3ds`.
 
+## The six sections
+
+Zanboxx is organised as six areas, each with its own pages and API:
+
+| Section | Path | What it does |
+|---|---|---|
+| Fintech Academy | `/academy` | Six courses with lessons, a quiz (70% to pass, answer key kept on the server) and tasks verified against your own sandbox activity. Finishing gives a public, verifiable certificate of completion (not an accredited qualification). `GET /v1/academy/courses`, `GET /v1/academy/progress`, `GET /v1/academy/certificates/{id}`. |
+| Payment Labs | `/labs` | The sandbox gateway and its simulations (the former home page; old links redirect). |
+| Knowledge Centre | `/knowledge` | Guides, reference and a glossary with search. `GET /v1/knowledge`, `GET /v1/glossary`. |
+| Fintech Intelligence | `/intelligence` | Research notes, RSS at `/intelligence/feed.xml`, and an optional headline feed from `INTEL_FEEDS` (comma-separated https RSS/Atom URLs; only title, link, source and a short snippet are shown). |
+| Fintech Careers | `/careers` | Moderated job board (verified email to post, admin approval, 60-day expiry, report button hides a listing after 3 reports), career paths and a skills profile built from Academy progress. |
+| Startup Hub | `/startups` | Launch roadmap with saved progress, guides, and a moderated startup directory. |
+
+Moderation uses `ADMIN_TOKEN` (Bearer): `GET /admin/jobs?status=pending`, `POST /admin/jobs/{id}/approve|reject`, `DELETE /admin/jobs/{id}`; the same for `/admin/startups`; `PUT /admin/articles/{slug}` (JSON `title`, `summary`, `markdown`, `tags`, `published_at`) and `DELETE /admin/articles/{slug}`; `DELETE /admin/certificates/{id}`; `POST /admin/feeds/refresh`.
+
 ## Test cards (scenario `auto`)
 
 | Card | Result |
