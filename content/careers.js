@@ -1,0 +1,28 @@
+"use strict";
+// Career paths: each role lists the skills it needs and where to learn them on Zanboxx. Courses are Academy course ids.
+module.exports = [
+  { id: "payments-engineer", title: "Payments engineer", summary: "Builds and runs the code that moves money: gateway integrations, webhooks, reconciliation.",
+    day: "Integrates acquirer and wallet APIs, handles retries and idempotency, debugs declines, keeps ledgers consistent.",
+    skills: [["Authorisation, capture and refunds", "card-payments"], ["Strong authentication (3-D Secure)", "three-d-secure"], ["Recurring and merchant-initiated payments", "recurring"], ["Settlement and reconciliation", "settlement"]],
+    labs: "Use the sandbox API and the webhook inspector; script the flows with the MCP server.", learn: ["knowledge/webhooks", "knowledge/endpoints"] },
+  { id: "risk-fraud-analyst", title: "Risk and fraud analyst", summary: "Decides which payments to trust and how to handle disputes.",
+    day: "Reviews alerts, tunes rules, answers chargebacks with evidence, watches fraud and dispute ratios.",
+    skills: [["Strong authentication and liability", "three-d-secure"], ["Disputes and chargebacks", "disputes"], ["Reading declines", "card-payments"]],
+    labs: "Raise disputes in the lab and practise writing evidence before the deadline.", learn: ["knowledge/disputes", "knowledge/authentication-and-limits"] },
+  { id: "payments-operations", title: "Payments operations / finance", summary: "Makes sure the money that was promised arrives, and explains it when it does not.",
+    day: "Reconciles settlement files, chases missing payouts, handles refunds and chargebacks, reports on fees.",
+    skills: [["Settlement and reconciliation", "settlement"], ["Disputes and chargebacks", "disputes"], ["Card payments basics", "card-payments"]],
+    labs: "Close settlement days and run the interchange fee report.", learn: ["knowledge/clearing-settlement-and-payouts"] },
+  { id: "pos-terminal-engineer", title: "POS and terminal engineer", summary: "Works on card-present: terminals, chip, PIN and ATM flows.",
+    day: "Implements EMV kernels and terminal software, certifies against scheme tests, troubleshoots field issues.",
+    skills: [["Chip, stripe, POS and ATM", "card-present"], ["Card payment basics", "card-payments"]],
+    labs: "Run the EMV, magstripe, POS and ATM labs and read the simulated APDU log.", learn: ["knowledge/card-present"] },
+  { id: "product-manager", title: "Payments product manager", summary: "Decides what a payment product should do and how it makes money.",
+    day: "Writes requirements, balances approval rates against fraud and fees, works with compliance and engineering.",
+    skills: [["Card payment basics", "card-payments"], ["Strong authentication", "three-d-secure"], ["Recurring payments", "recurring"], ["Settlement and fees", "settlement"]],
+    labs: "Test checkout outcomes and compare fee models in the interchange report.", learn: ["knowledge/payment-lifecycle"] },
+  { id: "founder", title: "Fintech founder", summary: "Builds a payments or fintech business.",
+    day: "Validates a problem, picks a regulatory route, chooses partners and pricing, launches.",
+    skills: [["Card payment basics", "card-payments"], ["Disputes and risk", "disputes"], ["Settlement and unit economics", "settlement"]],
+    labs: "Prototype your flows in the sandbox before you integrate a real provider.", learn: ["startups"] },
+];
