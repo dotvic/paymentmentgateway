@@ -110,6 +110,42 @@ Zanboxx refuses card numbers that look real. Use the [test cards](/knowledge/tes
 ].filter(Boolean);
 
 // Generated pages
+pages.push({ slug: "risk-and-fraud", title: "Risk scoring and fraud controls", category: "Concepts", summary: "How a risk score, thresholds and rules work together, and what the trade-offs cost.", markdown: `A payment risk system answers one question quickly: **approve, ask for more, or decline?** It has to stop fraud without turning away good customers.
+
+## Score first, then decide
+
+A **risk score** combines signals such as the amount compared with the customer's usual, whether the device is known, the country, how many payments happened in the last hour, how old the account is, and whether the customer passed strong authentication. A higher number means more risk.
+
+A score is not a yes or no. Because risk is continuous, each business draws its own lines:
+
+| Score | Typical action |
+|---|---|
+| Low | Approve without friction |
+| Middle | Step-up authentication or manual review |
+| High | Decline |
+
+## Rules on top
+
+**Rules** are explicit conditions, such as "more than five payments in an hour: review". They are easy to explain and to change quickly when a new attack appears. Models see patterns that rules miss, and rules cover cases where you know the answer. Most systems use both.
+
+## The trade-off
+
+Every setting has a cost on both sides:
+
+- **False negatives** let fraud through: lost goods plus chargebacks and fees.
+- **False positives** decline good customers: lost sales, and customers who may not come back.
+- **Manual review** is accurate but costs time per case.
+
+The right thresholds depend on your margins, average basket and how much fraud you face. Fixed thresholds also go stale: fraud patterns and customer behaviour change, so the numbers must be monitored and recalibrated.
+
+## Signals are not proof
+
+Location, device and time are hints. A holiday looks like fraud to a naive rule, and a determined criminal on a known device can look perfectly normal. Use several signals, and keep a path for the customer to prove who they are.
+
+## Try it
+
+The [risk engine lab](/labs/risk) lets you tune thresholds and rules on a practice set and see the cost. The [KPI page](/labs/kpis) shows approval and decline rates for your own payments. The [fraud and risk course](/academy/fraud-and-risk) walks through it.` });
+
 pages.push({ slug: "test-cards", title: "Test cards", category: "Reference", summary: "Every test card for Visa, Mastercard and American Express, and what each one does.",
   markdown: "Use these numbers with any future expiry. Visa and Mastercard use a 3-digit security code, American Express a 4-digit one. The PIN for card-present tests is `1234`. Real card numbers are always refused.\n\n" +
     Object.values(SCH.SCHEMES).map((s) => `## ${s.name}\n\n${s.note}\n\n| Number | What it does |\n| --- | --- |\n` + SCH.TEST_CARDS.filter((c) => c.scheme === s.id).map((c) => `| \`${c.number}\` | ${c.label} |`).join("\n")).join("\n\n") });

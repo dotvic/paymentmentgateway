@@ -120,4 +120,25 @@ module.exports = [
       T("tamper", "See a tampered cryptogram declined.", "Pick 'Flip a bit of the cryptogram' in the EMV lab.", (a) => has(a, (p) => p.cp && p.cp.response_code === "82" && p.transaction_state === "failed")),
       T("atm", "Withdraw cash at an ATM with a PIN.", "Use the ATM channel and the test PIN 1234.", (a) => has(a, (p) => p.cp && p.cp.channel === "atm" && p.cp.transaction_type === "withdrawal" && ok(p))),
     ] },
+  { id: "fraud-and-risk", title: "Fraud, risk scoring and authentication", level: "Intermediate", minutes: 50, summary: "How payments are scored for risk, how thresholds and rules trade fraud against lost sales, and how to measure it.",
+    lessons: [
+      { title: "What fraud looks like", md: "Common patterns: **stolen card** use, **card testing** (many tiny payments to find live numbers), **account takeover** (a criminal in a real customer's account) and **social engineering** (the customer is tricked into paying). Each leaves different traces: card testing shows a burst of payments from a new account, takeover shows a new device and a country change, a stolen card often shows a larger-than-usual basket at a first-time merchant." },
+      { title: "Risk scores and risk-based authentication", md: "A **risk score** adds up signals into a number. Instead of challenging every payment, **risk-based authentication** lets low-risk payments through and asks for **step-up authentication** only when the score is high. The goal is not just to stop fraud: it is to stop fraud while approving as many good payments as possible." },
+      { title: "Thresholds and rules", md: "Thresholds turn a score into an action: approve below one line, decline above another, and send the middle to **manual review**. **Rules** such as \"more than five payments in an hour: review\" run before the score and win over it.\n\nUse rules for cases you are sure about, and the score for everything else. Keep them few and explainable." },
+      { title: "The cost of being wrong", md: "A **false negative** is fraud that got through: you lose the goods, the money and often pay a chargeback fee. A **false positive** is a good customer you declined: you lose the sale and maybe the customer. A review costs staff time.\n\nThere is no setting with zero of both. The right balance depends on margins and fraud rates, and it moves as attackers change, so watch for **model drift** and recalibrate." },
+      { title: "Signals are hints, not proof", md: "Location, device, time of day and velocity are signals. A holiday trip looks like **impossible travel** to a naive rule, and a fraudster on a stolen but known device can look normal. Combine signals, keep a way for real customers to prove themselves, and measure outcomes with KPIs: approval rate, decline rate, fraud rate, dispute ratio and review rate." },
+    ],
+    quiz: [
+      Q("Why is a risk score more useful than a simple fraud / not fraud flag?", ["It is always more accurate", "Risk is continuous, so each business can choose where to approve, review or decline", "It removes the need for rules", "It makes payments faster"], 1, "A score lets you set your own lines for your own costs."),
+      Q("What is a false positive?", ["Fraud that got through", "A good payment declined or held by mistake", "A correct decline", "A refund"], 1, "A false positive costs a sale and annoys a customer."),
+      Q("Many tiny payments from a new account in a few minutes most likely suggest...", ["Holiday spending", "Card testing", "A refund campaign", "Strong authentication"], 1, "Fraudsters test stolen numbers with small amounts at high velocity."),
+      Q("Why must thresholds be monitored and recalibrated?", ["Regulators require it weekly", "Customers and fraud patterns change, so a model drifts", "Thresholds expire", "Schemes change them"], 1, "A setting that works today can be wrong in a few months."),
+      Q("Impossible travel should be treated as...", ["Proof of fraud", "One signal to combine with others", "Irrelevant", "A reason to block the customer for life"], 1, "Cards can be used online from anywhere; it is a hint."),
+    ],
+    tasks: [
+      T("run", "Run the risk engine lab on the practice set.", "Open /labs/risk and press Run.", (a) => !!(a.risk && a.risk.runs > 0)),
+      T("rule", "Add a rule and run again.", "Try 'minutes_since_last <= 90 then review'.", (a) => !!(a.risk && a.risk.rule_used)),
+      T("tune", "Tune the lab to a total cost of 250 or less with at most 5% good customers declined.", "Move the lines; look at the total cost.", (a) => !!(a.risk && a.risk.goal)),
+      T("kpis", "Make an approved and a declined payment so your KPI page has data.", "See /labs/kpis afterwards.", (a) => has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "success") && has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "failed")),
+    ] },
 ];

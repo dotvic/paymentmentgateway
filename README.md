@@ -93,6 +93,8 @@ Zanboxx is organised as six areas, each with its own pages and API:
 | Fintech Careers | `/careers` | Moderated job board (verified email to post, admin approval, 60-day expiry, report button hides a listing after 3 reports), career paths and a skills profile built from Academy progress. |
 | Startup Hub | `/startups` | Launch roadmap with saved progress, guides, and a moderated startup directory. |
 
+Payment Labs also has a risk engine lab (`/labs/risk`: tune thresholds and rules on 58 practice payments, `POST /v1/risk/evaluate`, `POST /v1/risk/score`) and a KPI page (`/labs/kpis`, `GET /v1/kpis`: approval, decline, refund and dispute rates from your own payments).
+
 Moderation uses `ADMIN_TOKEN` (Bearer): `GET /admin/jobs?status=pending`, `POST /admin/jobs/{id}/approve|reject`, `DELETE /admin/jobs/{id}`; the same for `/admin/startups`; `PUT /admin/articles/{slug}` (JSON `title`, `summary`, `markdown`, `tags`, `published_at`) and `DELETE /admin/articles/{slug}`; `DELETE /admin/certificates/{id}`; `POST /admin/feeds/refresh`.
 
 ## Test cards (scenario `auto`)
