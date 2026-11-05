@@ -75,7 +75,7 @@ function shell({ title, description, active, body, script = "", canonical = "", 
 <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="icon" href="/favicon.png" type="image/png" sizes="48x48"><meta name="theme-color" content="#6a3df0">
 <style>${BASE_CSS}${SITE_CSS}</style></head><body><a class="skip" href="#main">Skip to content</a>${nav(active)}<main id="main" class="wrap page">${body}</main>
 <footer class="wrap foot"><div>${SECTIONS.map((s) => `<a href="${s.href}">${esc(s.short)}</a>`).join("")}</div><p>Zanboxx is an independent learning and testing platform. Test cards and fictional money only: never enter real card data. Nothing here is legal, financial or regulatory advice.</p>
-<div><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/impressum">Impressum</a></div></footer>
+<div><a href="/developers">Developers</a><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/impressum">Impressum</a></div></footer>
 ${script ? "<script>" + CLIENT + script + "</script>" : ""}</body></html>`;
 }
 

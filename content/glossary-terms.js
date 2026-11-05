@@ -68,4 +68,12 @@ module.exports = [
   ["Manual review", "A person checks a flagged payment before it is approved or declined. It is accurate but slow and costs money per case."],
   ["Model drift", "A risk model getting worse over time because customers and fraudsters change. It is why thresholds and models need monitoring and recalibration."],
   ["Approval rate", "The share of first payment attempts that are approved. Each point lost is revenue lost."],
+  ["Idempotency key", "A unique value you send with a request so that repeating the same request returns the first result instead of doing the work twice. It makes retries safe."],
+  ["Idempotent", "An operation that gives the same end result however many times you repeat it. Freezing an already frozen card is idempotent; charging a card is not, unless you add a key."],
+  ["Replay protection", "Defences that reject a recorded request or event sent a second time, such as timestamps in signatures, one-time tokens and idempotency keys."],
+  ["Rate limiting", "Capping how many requests a client can make in a time window, to protect the service and slow abuse. Clients should back off when they get a 429."],
+  ["Transaction controls", "Rules a cardholder or issuer sets on a card, such as switching off online use or ATM withdrawals, a daily limit or blocked merchant categories. They are checked at authorisation."],
+  ["MCC (merchant category code)", "A four-digit code that says what kind of business a merchant is, such as 5411 for grocery stores. Controls and risk rules use it."],
+  ["Audit log", "A time-ordered record of who did what and when, such as who froze a card. It is kept so that questions can be answered later."],
+  ["Gateway timeout", "The caller stopped waiting before the server answered. The work may or may not have been done, so check the outcome or retry with an idempotency key before charging again."],
 ];

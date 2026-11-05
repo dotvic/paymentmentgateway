@@ -3,8 +3,8 @@
 module.exports = [
   { id: "payments-engineer", title: "Payments engineer", summary: "Builds and runs the code that moves money: gateway integrations, webhooks, reconciliation.",
     day: "Integrates acquirer and wallet APIs, handles retries and idempotency, debugs declines, keeps ledgers consistent.",
-    skills: [["Authorisation, capture and refunds", "card-payments"], ["Strong authentication (3-D Secure)", "three-d-secure"], ["Recurring and merchant-initiated payments", "recurring"], ["Settlement and reconciliation", "settlement"]],
-    labs: "Use the sandbox API and the webhook inspector; script the flows with the MCP server.", learn: ["knowledge/webhooks", "knowledge/endpoints"] },
+    skills: [["API security and safe retries", "api-security"], ["Authorisation, capture and refunds", "card-payments"], ["Strong authentication (3-D Secure)", "three-d-secure"], ["Recurring and merchant-initiated payments", "recurring"], ["Settlement and reconciliation", "settlement"]],
+    labs: "Use the sandbox API, the webhook inspector and the card controls and idempotency lab; script the flows with the MCP server.", learn: ["knowledge/webhooks", "knowledge/endpoints"] },
   { id: "risk-fraud-analyst", title: "Risk and fraud analyst", summary: "Decides which payments to trust and how to handle disputes.",
     day: "Reviews alerts, tunes rules, answers chargebacks with evidence, watches fraud and dispute ratios.",
     skills: [["Fraud patterns and risk scoring", "fraud-and-risk"], ["Strong authentication and liability", "three-d-secure"], ["Disputes and chargebacks", "disputes"], ["Reading declines", "card-payments"]],

@@ -22,6 +22,20 @@ module.exports = function ({ html, ctx, UI, esc }) {
     };
   }
 
+  function devPage() {
+    const body = `<div class="crumbs">Developers</div><h1>For developers</h1><p class="lede">Everything you need to integrate against the Zanboxx sandbox, test it, and automate it. All payments are simulated with test cards: no real money or card data.</p>
+<div class="grid">
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/getting-started"><h3 style="margin:0 0 4px;font-size:18px">Quickstart</h3><p>Create an account and make a test payment in five minutes.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/endpoints"><h3 style="margin:0 0 4px;font-size:18px">API reference</h3><p>Every endpoint, request and response.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/test-cards"><h3 style="margin:0 0 4px;font-size:18px">Test cards and status codes</h3><p>Which card gives which outcome, and what each code means.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/webhooks"><h3 style="margin:0 0 4px;font-size:18px">Webhooks</h3><p>Signed events, retries, and the replay inspector.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/idempotency-and-retries"><h3 style="margin:0 0 4px;font-size:18px">Idempotency and retries</h3><p>Make timeouts safe. Try it in the <a href="/labs/controls">controls lab</a>.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/knowledge/mcp-server"><h3 style="margin:0 0 4px;font-size:18px">Use it from an AI assistant</h3><p>A Model Context Protocol server with 30 tools. Test cards only.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/labs"><h3 style="margin:0 0 4px;font-size:18px">Labs</h3><p>3-D Secure, disputes, settlement, POS and ATM, risk scoring.</p></a>
+<a class="panel sec" style="--c:#2fd1a4;border-top-width:4px;padding:14px 16px" href="/academy/api-security"><h3 style="margin:0 0 4px;font-size:18px">Course: API security</h3><p>Idempotency, controls, webhooks and rate limits, with lab tasks.</p></a></div>
+<h2>First request</h2><pre class="panel" style="overflow:auto">curl -X POST ${esc(ctx.publicUrl || "https://zanboxx.com")}/v1/accounts</pre><p class="hint">Returns an API key. Send it as <code>Authorization: Bearer ...</code>. Free accounts allow 30 requests a minute.</p>`;
+    return UI.shell({ title: "For developers – Zanboxx", description: "API reference, test cards, webhooks, idempotency and MCP for the Zanboxx sandbox.", active: "knowledge", body });
+  }
   function riskPage() {
     const body = `<style>.rule select,.rule input{width:auto;display:inline-block}</style><div class="crumbs"><a href="/labs">Payment Labs</a> / Risk engine</div><h1>Risk engine lab</h1>
 <p class="lede">Every payment gets a risk score from 0 to 100. Where you draw the lines decides how much fraud you stop, how many good customers you annoy, and what it costs. Tune it on 58 practice payments, about one in four of them fraud.</p>
@@ -62,6 +76,7 @@ o.innerHTML='<div class="grid"><div class="panel"><strong>Approval rate</strong>
 
   return {
     async handle(req, res, path, m) {
+      if (m === "GET" && path === "/developers") { html(res, 200, devPage(), false); return true; }
       if (m === "GET" && path === "/labs/risk") { html(res, 200, riskPage()); return true; }
       if (m === "GET" && path === "/labs/kpis") { html(res, 200, kpiPage()); return true; }
       if (m === "GET" && path === "/v1/risk/dataset") { send(res, 200, { transactions: R.DATASET.map(R.publicTx), fields: Object.keys(R.FIELDS), note: "Practice payments. Labels are revealed only in evaluation results." }); return true; }

@@ -141,4 +141,26 @@ module.exports = [
       T("tune", "Tune the lab to a total cost of 250 or less with at most 5% good customers declined.", "Move the lines; look at the total cost.", (a) => !!(a.risk && a.risk.goal)),
       T("kpis", "Make an approved and a declined payment so your KPI page has data.", "See /labs/kpis afterwards.", (a) => has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "success") && has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "failed")),
     ] },
+  { id: "api-security", title: "API security and idempotency", level: "Intermediate", minutes: 45, summary: "Safe retries with idempotency keys, controls and audit logs, and the basics of securing a payments API.",
+    lessons: [
+      { title: "Why payments APIs are different", md: "A bug in a normal API shows a wrong page. A bug in a payments API moves the wrong money, and attackers go where the money is. Payments APIs need **authentication**, **authorisation** (which key may do what), encryption in transit, input validation, rate limits, logging and careful error messages, from the first day." },
+      { title: "Idempotency keys", md: "Networks fail after the server has acted but before you hear back. A **timeout means unknown**. An **idempotency key** makes a retry safe: the same key with the same request returns the first result and does nothing twice. The same key with a different request is refused. Generate one key per intent, reuse it on retries, and expire keys after a set time." },
+      { title: "Controls and limits", md: "**Transaction controls** let a cardholder or issuer restrict a card: switch channels off, block merchant categories, stop foreign use, or cap daily spend. They are evaluated at authorisation and every refusal returns a **reason code**, so apps can explain it. Limits protect against mistakes and abuse alike." },
+      { title: "Webhooks, signatures and replay", md: "Webhooks arrive from the internet, so verify the **signature** before trusting one, check the timestamp to refuse old copies, and store the IDs of events you handled so that a delivered-twice event is processed once. Always answer quickly and do the heavy work afterwards." },
+      { title: "Rate limiting, errors and audit", md: "**Rate limits** protect the service. When you get a 429, wait and retry with backoff. Return errors that help the developer and never leak secrets or card data. Keep an **audit log** of sensitive actions (who froze a card, who changed a limit) so questions can be answered later. Never log full card numbers or keys." },
+    ],
+    quiz: [
+      Q("A payment request times out. What is the safest next step?", ["Send a new payment with a new key", "Retry with the same idempotency key, or look the payment up", "Assume it failed and tell the customer", "Refund it"], 1, "A timeout means unknown. The same key makes the retry safe."),
+      Q("The same Idempotency-Key arrives with a different request body. What should the server do?", ["Process it as a new request", "Return the first result", "Refuse it", "Ignore the key"], 2, "Reusing a key for a different request is almost certainly a bug."),
+      Q("Which operation is naturally idempotent?", ["Charge 20.00", "Set a card's state to frozen", "Send an email", "Append a log line"], 1, "Freezing twice leaves the card frozen."),
+      Q("Why store processed webhook event IDs?", ["To save disk", "So an event delivered twice is handled once", "To speed up signatures", "To rate limit"], 1, "Webhooks can be delivered more than once."),
+      Q("Why should a declined control return a reason code?", ["To help attackers", "So the app can tell the user why", "It is required by TLS", "To raise limits"], 1, "Reason codes let apps explain refusals."),
+    ],
+    tasks: [
+      T("card", "Create a test card in the card controls lab.", "Open /labs/controls.", (a) => (a.cards || []).length > 0),
+      T("control", "Switch a control on that blocks an authorization.", "For example set a daily limit and go over it.", (a) => !!(a.ctl && a.ctl.blocked > 0)),
+      T("replay", "Repeat a request with the same Idempotency-Key.", "Press Authorize twice with the key box ticked.", (a) => !!(a.ctl && a.ctl.replays > 0)),
+      T("mismatch", "Reuse a key with a different request and see it refused.", "Call the API: same Idempotency-Key, different amount.", (a) => !!(a.ctl && a.ctl.mismatches > 0)),
+      T("recover", "Recover from a simulated timeout without charging twice.", "Tick the timeout box, authorize, then retry with the key.", (a) => !!(a.ctl && a.ctl.recovered > 0)),
+    ] },
 ];

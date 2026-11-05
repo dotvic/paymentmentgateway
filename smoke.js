@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 7);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 8);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1110,6 +1110,25 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const rsc = await A("POST", "/v1/risk/score", { signals: { amount: 900, typical_amount: 50, device_known: false, country_matches_home: false } }); assert.equal(rsc.body.score, 60); assert.equal(rsc.body.decision, "review"); assert.ok(rsc.body.factors.length >= 3);
       const kp = (await A("GET", "/v1/kpis")).body; assert.ok(kp.attempts >= 3 && kp.approval_rate_percent > 0 && kp.decline_rate_percent > 0);
       const rt = await A("POST", "/v1/academy/courses/fraud-and-risk/tasks/check"); assert.equal(rt.body.tasks_done, 4, "risk course tasks verify from lab activity");
+      // card controls and idempotency
+      assert.equal((await raw("POST", "/v1/cards", {})).status, 401);
+      const acct2 = (await raw("POST", "/v1/accounts")).body.api_key, A2 = (m, p, bd) => raw(m, p, bd, acct2);
+      const ck = await A2("POST", "/v1/cards", {}); assert.equal(ck.status, 201); const cid = ck.body.card.id;
+      const H = (k) => ({ "content-type": "application/json", authorization: "Bearer " + acct2, ...(k ? { "idempotency-key": k } : {}) });
+      const postK = async (u, b, k) => { const r = await fetch(BASE + u, { method: "POST", headers: H(k), body: JSON.stringify(b) }); return { status: r.status, replayed: r.headers.get("idempotent-replayed"), body: await r.json() }; };
+      assert.equal((await A2("PUT", `/v1/cards/${cid}/controls`, { daily_limit: 100, blocked_mcc: ["7995"] })).status, 200); assert.equal((await A2("PUT", `/v1/cards/${cid}/controls`, { daily_limit: -5 })).status, 400);
+      const a1 = await A2("POST", `/v1/cards/${cid}/authorize`, { amount: 60, channel: "online", country: "PL", mcc: "5411" }); assert.equal(a1.body.approved, true);
+      const a2 = await A2("POST", `/v1/cards/${cid}/authorize`, { amount: 60, channel: "online", country: "PL", mcc: "5411" }); assert.equal(a2.body.reason_code, "DAILY_LIMIT");
+      { const mr = await A2("POST", `/v1/cards/${cid}/authorize`, { amount: 5, channel: "online", country: "PL", mcc: "7995" }); assert.equal(mr.body.reason_code, "MCC_BLOCKED", JSON.stringify(mr)); }
+      assert.equal((await postK(`/v1/cards/${cid}/authorize`, { amount: 5, channel: "online", country: "PL", mcc: "5411" }, "bad key")).status, 400);
+      const k1 = await postK(`/v1/cards/${cid}/authorize`, { amount: 10, channel: "online", country: "PL", mcc: "5411", simulate_timeout: true }, "lab-key-0001"); assert.equal(k1.status, 504);
+      const k2 = await postK(`/v1/cards/${cid}/authorize`, { amount: 10, channel: "online", country: "PL", mcc: "5411", simulate_timeout: true }, "lab-key-0001"); assert.equal(k2.status, 200); assert.equal(k2.replayed, "true"); assert.equal(k2.body.approved, true);
+      assert.equal((await A2("GET", `/v1/cards/${cid}`)).body.card.spent_today, 70, "spend counted once");
+      const k3 = await postK(`/v1/cards/${cid}/authorize`, { amount: 11, channel: "online", country: "PL", mcc: "5411" }, "lab-key-0001"); assert.equal(k3.status, 422);
+      const f1 = await postK(`/v1/cards/${cid}/freeze`, {}, "freeze-key-1"), f2 = await postK(`/v1/cards/${cid}/freeze`, {}, "freeze-key-1"); assert.equal(f1.body.card.state, "frozen"); assert.equal(f2.replayed, "true");
+      assert.equal((await A2("POST", `/v1/cards/${cid}/authorize`, { amount: 1, channel: "online", country: "PL", mcc: "5411" })).body.reason_code, "CARD_FROZEN");
+      assert.ok((await A2("GET", `/v1/cards/${cid}/audit`)).body.data.some((x) => x.event === "card.freeze"));
+      assert.equal((await A2("POST", "/v1/academy/courses/api-security/tasks/check")).body.tasks_done, 5);
       // intelligence
       const art = { title: "Note <script>x</script>", summary: "Summary", markdown: "# Hi\n\n<img src=x onerror=alert(1)> [bad](javascript:alert(1))" };
       assert.equal((await raw("PUT", "/admin/articles/smoke-note", art)).status, 401);
@@ -1128,7 +1147,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await raw("GET", "/v1/careers/jobs?q=warsaw")).body.data.length, 1); assert.match((await raw("GET", "/careers/jobs/" + jc.body.id)).text, /Payments engineer/);
       assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200); assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200);
       assert.equal((await raw("GET", "/v1/careers/jobs")).body.data.length, 1, "one reporter counted once");
-      const prof = (await A("GET", "/v1/careers/profile")).body; assert.ok(prof.completed.includes("Card payments fundamentals") && prof.paths.find((p) => p.id === "payments-engineer").percent === 25);
+      const prof = (await A("GET", "/v1/careers/profile")).body; assert.ok(prof.completed.includes("Card payments fundamentals") && prof.paths.find((p) => p.id === "payments-engineer").percent === 20);
       assert.equal((await A("DELETE", "/v1/careers/jobs/" + jc.body.id)).status, 200);
       // startups
       assert.equal((await raw("GET", "/v1/startups/roadmap")).body.stages.length, 6);

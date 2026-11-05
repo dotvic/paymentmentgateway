@@ -146,6 +146,47 @@ Location, device and time are hints. A holiday looks like fraud to a naive rule,
 
 The [risk engine lab](/labs/risk) lets you tune thresholds and rules on a practice set and see the cost. The [KPI page](/labs/kpis) shows approval and decline rates for your own payments. The [fraud and risk course](/academy/fraud-and-risk) walks through it.` });
 
+pages.push({ slug: "idempotency-and-retries", title: "Idempotency and safe retries", category: "Guides", summary: "Why a timeout must never lead to a second charge, and how idempotency keys prevent it.", markdown: `## The problem
+
+You send a payment request and the connection drops. Did the payment happen? You cannot tell. If you simply send it again, the customer may be charged twice. If you do nothing, an order may go unpaid.
+
+## The fix: an idempotency key
+
+Send a unique value in an \`Idempotency-Key\` header with every request that changes something. The server remembers the key and the result:
+
+1. First request with the key: do the work, store the result.
+2. Same key, same request: return the stored result and do nothing again.
+3. Same key, **different** request: refuse it. It is almost certainly a bug.
+
+\`\`\`
+POST /v1/cards/crd_.../authorize
+Idempotency-Key: order-1042-attempt-1
+\`\`\`
+
+## Rules of thumb
+
+- Generate the key once per **intent** (one order, one payout), not once per attempt.
+- Reuse the **same** key and the **same** body when you retry.
+- Keep keys for a limited time: here 24 hours.
+- Read-only requests (GET) do not need one.
+- Some operations are idempotent by nature: setting a card to frozen twice leaves it frozen.
+
+## Timeouts
+
+A timeout means **unknown**, not failed. The safe order is:
+
+1. Retry with the same key, or
+2. Look the payment up by your own reference, or wait for the webhook,
+3. Only then decide to start a new payment with a new key.
+
+## Related protections
+
+Webhooks need **replay protection** (a timestamp in the signature, and storing event IDs you have processed). APIs need **rate limiting** so that retries do not become a flood: wait longer between each retry. Keep an **audit log** so you can show what happened.
+
+## Try it
+
+In the [card controls and idempotency lab](/labs/controls), tick "simulate a timeout", authorize, then press the button again, with and without the key.` });
+
 pages.push({ slug: "test-cards", title: "Test cards", category: "Reference", summary: "Every test card for Visa, Mastercard and American Express, and what each one does.",
   markdown: "Use these numbers with any future expiry. Visa and Mastercard use a 3-digit security code, American Express a 4-digit one. The PIN for card-present tests is `1234`. Real card numbers are always refused.\n\n" +
     Object.values(SCH.SCHEMES).map((s) => `## ${s.name}\n\n${s.note}\n\n| Number | What it does |\n| --- | --- |\n` + SCH.TEST_CARDS.filter((c) => c.scheme === s.id).map((c) => `| \`${c.number}\` | ${c.label} |`).join("\n")).join("\n\n") });
