@@ -8,7 +8,7 @@ const srv = spawn("node", ["server.js"], {
   env: {
     ...process.env, PORT, DATA_FILE: `/tmp/dryrun-test-${Date.now()}.json`, ALLOW_PRIVATE_WEBHOOKS: "1", RETRY_MS: "0,200", SETTLE_DELAY_MS: "300", DISPUTE_REVIEW_DELAY_MS: "300",
     SIGNUPS_PER_HOUR: "50", MAIL_IP_PER_HOUR: "100", EMAIL_API_KEY: "re_test", EMAIL_FROM: "Zanboxx <login@example.test>", EMAIL_API_BASE: `http://127.0.0.1:${MAIL_PORT}`,
-    STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET, ANTHROPIC_API_KEY: "sk-ant-mock", ANTHROPIC_API_BASE: `http://127.0.0.1:${AI_PORT}`, TUTOR_MODEL: "mock-model",
+    ADMIN_TOKEN: "admsmoke", STRIPE_SECRET_KEY: "sk_test_mock", STRIPE_PRICE_ID: "price_test_1", STRIPE_WEBHOOK_SECRET: WH_SECRET, ANTHROPIC_API_KEY: "sk-ant-mock", ANTHROPIC_API_BASE: `http://127.0.0.1:${AI_PORT}`, TUTOR_MODEL: "mock-model",
     STRIPE_API_BASE: `http://127.0.0.1:${STRIPE_PORT}`, PUBLIC_URL: "https://example.test", PRO_PRICE_LABEL: "EUR 19 per month",
     OPERATOR_NAME: "Test Operator Ltd", OPERATOR_ADDRESS: "1 Test Street", CONTACT_EMAIL: "legal@example.test",
   },
@@ -1070,6 +1070,67 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.ok((await tool("card_present_transaction", { transaction_type: "sale", amount: 4.2, card_number: "4242424242424242" })).isError, "real card refused by MCP");
       assert.equal((await tool("get_card_present_log", { transaction_id: cpm.json.id })).json.flow.length >= 4, true);
       assert.equal((await tool("list_card_present_options", {})).json.test_cards.length, 33); assert.match((await tool("explain_status_code", { code: "ISO 82" })).text, /Cryptogram/);
+    }
+
+
+    {
+      // ---- six sections: knowledge, academy, intelligence, careers, startups
+      const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
+      const ADM = "admsmoke";
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
+      assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
+      // academy
+      const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
+      assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 6);
+      const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
+      for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/quiz", { answers: [0, 0] })).status, 400);
+      const q0 = await A("POST", "/v1/academy/courses/card-payments/quiz", { answers: [0, 0, 0, 0, 0] }); assert.equal(q0.body.passed, false); assert.ok(q0.body.results.every((r) => !r.explanation), "no answers leaked on a failed attempt");
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/certificate", { name: "Ada" })).status, 409);
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/quiz", { answers: [2, 1, 1, 1, 1] })).body.passed, true);
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/tasks/check")).body.tasks_done, 0, "tasks need real activity");
+      const P = (extra) => A("POST", "/v1/payments", { request_id: "ac_" + Math.random().toString(36).slice(2), method: "card", transaction_type: "purchase", amount: 10, currency: "EUR", card_number: "4111111111111111", ...extra });
+      const pa = (await P()).body; await P({ card_number: "4000000000000002" }); const au = (await P({ transaction_type: "authorization" })).body;
+      await P({ transaction_type: "capture-authorization", parent_transaction_id: au.id }); await P({ transaction_type: "refund", amount: 3, parent_transaction_id: pa.id });
+      const tk = await A("POST", "/v1/academy/courses/card-payments/tasks/check"); assert.equal(tk.body.tasks_done, 4); assert.equal(tk.body.complete, true);
+      const ce = await A("POST", "/v1/academy/courses/card-payments/certificate", { name: "  Ada <b>Lovelace " }); assert.equal(ce.status, 201); assert.equal(ce.body.name, "Ada bLovelace");
+      assert.equal((await A("POST", "/v1/academy/courses/card-payments/certificate", { name: "Other" })).body.id, ce.body.id, "one certificate per course");
+      assert.equal((await raw("GET", "/v1/academy/certificates/" + ce.body.id)).body.valid, true);
+      assert.match((await raw("GET", "/academy/certificate/" + ce.body.id)).text, /Ada bLovelace/);
+      assert.equal((await raw("DELETE", "/admin/certificates/" + ce.body.id, null, ADM)).status, 200); assert.equal((await raw("GET", "/v1/academy/certificates/" + ce.body.id)).status, 404);
+      // intelligence
+      const art = { title: "Note <script>x</script>", summary: "Summary", markdown: "# Hi\n\n<img src=x onerror=alert(1)> [bad](javascript:alert(1))" };
+      assert.equal((await raw("PUT", "/admin/articles/smoke-note", art)).status, 401);
+      assert.equal((await raw("PUT", "/admin/articles/smoke-note", art, ADM)).status, 200); assert.equal((await raw("PUT", "/admin/articles/why-payments-get-declined", art, ADM)).status, 409);
+      const ap = (await raw("GET", "/intelligence/smoke-note")).text; assert.ok(!/<img|<script>x|href="javascript/i.test(ap), "article markup escaped");
+      assert.match((await raw("GET", "/intelligence/feed.xml")).text, /smoke-note/); assert.equal((await raw("DELETE", "/admin/articles/smoke-note", null, ADM)).status, 200);
+      assert.equal((await raw("GET", "/v1/intelligence/headlines")).body.configured, false);
+      // careers
+      const jb = { title: "Payments engineer", company: "Acme", location: "Warsaw", type: "full-time", apply_url: "https://acme.example/jobs/1", description: "We build payment systems and need an engineer who understands cards, webhooks and reconciliation well." };
+      assert.equal((await A("POST", "/v1/careers/jobs", jb)).status, 403, "unverified email cannot post");
+      key = acct; await api("POST", "/v1/account/email", { email: "careers1@example.test" }); await sleep(150); assert.equal((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).status, 200);
+      assert.equal((await A("POST", "/v1/careers/jobs", { ...jb, apply_url: "http://acme.example" })).status, 400); assert.equal((await A("POST", "/v1/careers/jobs", { ...jb, apply_url: "javascript:alert(1)" })).status, 400);
+      const jc = await A("POST", "/v1/careers/jobs", jb); assert.equal(jc.status, 201); assert.equal(jc.body.status, "pending");
+      assert.equal((await raw("GET", "/v1/careers/jobs")).body.data.length, 0, "pending jobs are hidden"); assert.equal((await raw("GET", "/careers/jobs/" + jc.body.id)).status, 404);
+      assert.equal((await raw("POST", `/admin/jobs/${jc.body.id}/approve`, null, ADM)).body.status, "approved");
+      assert.equal((await raw("GET", "/v1/careers/jobs?q=warsaw")).body.data.length, 1); assert.match((await raw("GET", "/careers/jobs/" + jc.body.id)).text, /Payments engineer/);
+      assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200); assert.equal((await raw("POST", `/v1/careers/jobs/${jc.body.id}/report`)).status, 200);
+      assert.equal((await raw("GET", "/v1/careers/jobs")).body.data.length, 1, "one reporter counted once");
+      const prof = (await A("GET", "/v1/careers/profile")).body; assert.ok(prof.completed.includes("Card payments fundamentals") && prof.paths.find((p) => p.id === "payments-engineer").percent === 25);
+      assert.equal((await A("DELETE", "/v1/careers/jobs/" + jc.body.id)).status, 200);
+      // startups
+      assert.equal((await raw("GET", "/v1/startups/roadmap")).body.stages.length, 6);
+      assert.equal((await A("PUT", "/v1/startups/progress/v-problem", { done: true })).body.done_count, 1); assert.equal((await A("PUT", "/v1/startups/progress/x-nope", {})).status, 404);
+      assert.equal((await A("PUT", "/v1/startups/progress/v-problem", { done: false })).body.done_count, 0);
+      const sp = { name: "PayCo", tagline: "Simple payouts for freelancers", description: "We help freelancers get paid across borders with clear fees and fast payouts.", website: "https://payco.example", country: "Poland", stage: "prototype" };
+      assert.equal((await A("POST", "/v1/startups/directory", { ...sp, website: "http://payco.example" })).status, 400);
+      const sc = await A("POST", "/v1/startups/directory", sp); assert.equal(sc.status, 201); assert.equal((await raw("GET", "/v1/startups/directory")).body.data.length, 0);
+      assert.equal((await raw("POST", `/admin/startups/${sc.body.id}/approve`, null, ADM)).body.status, "approved"); assert.match((await raw("GET", "/startups/directory")).text, /PayCo/);
+      assert.equal((await A("DELETE", "/v1/startups/directory/" + sc.body.id)).status, 200);
+      key = undefined;
     }
 
     console.log("All checks passed");
