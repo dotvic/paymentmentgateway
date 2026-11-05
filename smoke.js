@@ -40,7 +40,7 @@ const mockMail = http.createServer((req, res) => {
     mails.push({ auth: req.headers.authorization, ...JSON.parse(d) }); res.setHeader("content-type", "application/json"); res.end("{\"id\":\"m1\"}");
   });
 }).listen(MAIL_PORT);
-const lastLink = (param) => { const m = mails[mails.length - 1].text.match(new RegExp("/\\?" + param + "=([a-f0-9]+)")); return m && m[1]; };
+const lastLink = (param) => { const m = mails[mails.length - 1].text.match(new RegExp("/labs\\?" + param + "=([a-f0-9]+)")); return m && m[1]; };
 const hooks = []; let failFirst = true, secret = "";
 const receiver = http.createServer((req, res) => {
   let d = ""; req.on("data", (c) => (d += c)); req.on("end", () => {
@@ -145,7 +145,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     assert.equal(co.status, 200); assert.equal(co.body.url, "https://checkout.stripe.test/c/cs_1");
     const coCall = stripeCalls.find((c) => c.url === "/v1/checkout/sessions");
     assert.equal(coCall.auth, "Bearer sk_test_mock");
-    for (const part of ["mode=subscription", `client_reference_id=${accId}`, "line_items[0][price]=price_test_1", "line_items[0][quantity]=1", "success_url=https://example.test/?billing=success"])
+    for (const part of ["mode=subscription", `client_reference_id=${accId}`, "line_items[0][price]=price_test_1", "line_items[0][quantity]=1", "success_url=https://example.test/labs?billing=success"])
       assert.ok(coCall.body.includes(part), "checkout request has " + part);
     assert.equal((await api("POST", "/v1/billing/portal")).status, 409, "portal needs a customer first");
 
@@ -326,7 +326,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     const sent = await api("POST", "/v1/account/email", { email: "  Learner@Example.TEST " }); assert.equal(sent.status, 200);
     await sleep(150);
     assert.equal(mails.length, 1); assert.equal(mails[0].to[0], "learner@example.test"); assert.equal(mails[0].auth, "Bearer re_test");
-    assert.ok(mails[0].text.includes("https://example.test/?verify="), "verification link built from PUBLIC_URL");
+    assert.ok(mails[0].text.includes("https://example.test/labs?verify="), "verification link built from PUBLIC_URL");
     assert.equal((await api("GET", "/v1/usage")).body.email, null, "not shown until verified");
     // sign-in before verification sends nothing
     await api("POST", "/v1/login", { email: "learner@example.test" }); await sleep(100);
@@ -347,7 +347,7 @@ const card = (n, extra = {}) => ({ request_id: "r_" + Math.random().toString(36)
     // sign in with a link: new key, old key dies, link works once
     key = null;
     const li = await api("POST", "/v1/login", { email: "LEARNER@example.test" }); assert.equal(li.status, 200); await sleep(150);
-    assert.equal(mails.length, before + 1); assert.ok(mails[mails.length - 1].text.includes("/?login="));
+    assert.equal(mails.length, before + 1); assert.ok(mails[mails.length - 1].text.includes("/labs?login="));
     const ltok = lastLink("login");
     const red = await api("POST", "/v1/login/redeem", { token: ltok });
     assert.equal(red.status, 200); assert.ok(/^sk_test_[a-f0-9]+$/.test(red.body.api_key)); assert.equal(red.body.account_id, ea.body.account_id);

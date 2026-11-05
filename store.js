@@ -14,6 +14,7 @@ const SCHEMA = `
   CREATE TABLE IF NOT EXISTS emails  (email TEXT PRIMARY KEY, account_id TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS tokens  (hash TEXT PRIMARY KEY, json TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS trials  (hash TEXT PRIMARY KEY, started_at INTEGER NOT NULL);
+  CREATE TABLE IF NOT EXISTS records (kind TEXT NOT NULL, id TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (kind, id));
   CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `;
 const TABLES = ["accounts", "keys", "emails", "tokens", "trials"];
@@ -50,7 +51,7 @@ class Store {
       throw new Error(`The database file ${file} is damaged (SQLite quick_check failed). Restore a backup: node backup.js list`);
     }
     this.legacy = opts.legacyJson || null;
-    this.shadow = { accounts: new Map(), keys: new Map(), emails: new Map(), tokens: new Map(), trials: new Map() };
+    this.shadow = { accounts: new Map(), keys: new Map(), emails: new Map(), tokens: new Map(), trials: new Map(), records: new Map() };
     this.log = opts.log || console.log;
   }
 
@@ -74,14 +75,15 @@ class Store {
     if (this.isEmpty() && this.legacy && fs.existsSync(this.legacy)) {
       let old;
       try { old = JSON.parse(fs.readFileSync(this.legacy, "utf8")); } catch (e) { throw new Error(`Could not read the old data file ${this.legacy}: ${e.message}`); }
-      DB = { accounts: old.accounts || {}, keys: old.keys || {}, emails: old.emails || {}, tokens: old.tokens || {}, trials: old.trials || {} };
+      DB = { accounts: old.accounts || {}, keys: old.keys || {}, emails: old.emails || {}, tokens: old.tokens || {}, trials: old.trials || {}, records: {} };
       this.flush(DB, null);
       const moved = `${this.legacy}.migrated`;
       fs.renameSync(this.legacy, moved);
       this.log(`Imported ${Object.keys(DB.accounts).length} accounts from ${path.basename(this.legacy)} into SQLite. The old file was kept as ${path.basename(moved)}.`);
       return DB;
     }
-    DB = { accounts: {}, keys: {}, emails: {}, tokens: {}, trials: {} };
+    DB = { accounts: {}, keys: {}, emails: {}, tokens: {}, trials: {}, records: {} };
+    for (const r of this.db.prepare("SELECT kind, id, json FROM records").all()) { (DB.records[r.kind] = DB.records[r.kind] || {})[r.id] = JSON.parse(r.json); this.shadow.records.set(r.kind + "/" + r.id, h1(r.json)); }
     for (const r of this.db.prepare("SELECT id, json FROM accounts").all()) { DB.accounts[r.id] = JSON.parse(r.json); this.shadow.accounts.set(r.id, h1(r.json)); }
     for (const r of this.db.prepare("SELECT hash, account_id FROM keys").all()) { DB.keys[r.hash] = r.account_id; this.shadow.keys.set(r.hash, r.account_id); }
     for (const r of this.db.prepare("SELECT email, account_id FROM emails").all()) { DB.emails[r.email] = r.account_id; this.shadow.emails.set(r.email, r.account_id); }
@@ -117,6 +119,14 @@ class Store {
       syncMap("emails", DB.emails, "INSERT OR REPLACE INTO emails (email, account_id) VALUES (?, ?)", "DELETE FROM emails WHERE email = ?");
       syncMap("tokens", DB.tokens, "INSERT OR REPLACE INTO tokens (hash, json) VALUES (?, ?)", "DELETE FROM tokens WHERE hash = ?", JSON.stringify);
       syncMap("trials", DB.trials, "INSERT OR REPLACE INTO trials (hash, started_at) VALUES (?, ?)", "DELETE FROM trials WHERE hash = ?");
+      {
+        const insR = q("INSERT OR REPLACE INTO records (kind, id, json) VALUES (?, ?, ?)"), delR = q("DELETE FROM records WHERE kind = ? AND id = ?"), seen = new Set();
+        for (const [kind, items] of Object.entries(DB.records || {})) for (const [id, v] of Object.entries(items)) {
+          const k = kind + "/" + id, json = JSON.stringify(v), hh = h1(json); seen.add(k);
+          if (sh.records.get(k) !== hh) { insR.run(kind, id, json); sh.records.set(k, hh); }
+        }
+        for (const k of [...sh.records.keys()]) if (!seen.has(k)) { const i = k.indexOf("/"); delR.run(k.slice(0, i), k.slice(i + 1)); sh.records.delete(k); }
+      }
       this.db.exec("COMMIT");
     } catch (e) {
       try { this.db.exec("ROLLBACK"); } catch {}

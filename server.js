@@ -47,6 +47,7 @@ const LEGAL = {
   UPDATED: process.env.LEGAL_UPDATED || "31 October 2026",
   DAYS: String(INACTIVE_DAYS),
 };
+const SITEUI = require("./siteui");
 const PAGES = {}, ASSETS = {};
 (function loadAssets() {
   const files = { "/favicon.svg": ["favicon.svg", "image/svg+xml"], "/favicon.png": ["favicon.png", "image/png"], "/favicon.ico": ["favicon.png", "image/png"], "/apple-touch-icon.png": ["apple-touch-icon.png", "image/png"] };
@@ -55,7 +56,13 @@ const PAGES = {}, ASSETS = {};
 (function loadPages() {
   const read = (f) => { try { return fs.readFileSync(require("path").join(PUBLIC_DIR, f), "utf8"); } catch { return null; } };
   const idx = read("index.html");
-  if (idx) PAGES["/"] = PAGES["/index.html"] = { body: Buffer.from(idx), script: true };
+  if (idx) {
+    const bar = SITEUI.nav("labs"), css = ".sitebar{background:var(--term);color:var(--term-ink);font-size:14px}.sitebar .wrap{display:flex;flex-wrap:wrap;gap:2px 18px;align-items:center;padding-top:8px;padding-bottom:8px;max-width:none;margin:0}.sitebar a{color:var(--term-mute);text-decoration:none;padding:2px 0}.sitebar a:hover,.sitebar a[aria-current]{color:#fff}.sitebar a[aria-current]{border-bottom:2px solid var(--sun)}.sitebar .sb-brand{color:#fff;font-weight:700;display:flex;gap:6px;align-items:center;margin-right:8px}";
+    const labs = idx.replace("</style>", css + "</style>").replace("<body>", "<body>" + bar);
+    PAGES["/labs"] = PAGES["/labs/"] = { body: Buffer.from(labs), script: true };
+    PAGES["/index.html"] = PAGES["/labs"];
+  }
+  PAGES["/"] = { body: Buffer.from(SITEUI.landing()), script: true };
   for (const n of ["terms", "privacy", "impressum"]) {
     const t = read(n + ".html");
     if (t) PAGES["/" + n] = { body: Buffer.from(t.replace(/\{\{(\w+)\}\}/g, (_, k) => (k in LEGAL ? escHtml(LEGAL[k]) : ""))) };
@@ -746,7 +753,7 @@ async function route(req, res) {
     const id = DB.emails[email];
     if (id && DB.accounts[id]) {
       const token = makeToken("login", id, email, LOGIN_MS);
-      sendMail(email, "Your Zanboxx sign-in link", `Open this link within 15 minutes to get a new API key for your Zanboxx account:\n\n${PUBLIC_URL}/?login=${token}\n\nSigning in replaces your current API key, so the old key stops working. If you did not ask for this, ignore this email and nothing changes.`).catch((e) => console.error("mail failed:", e.message));
+      sendMail(email, "Your Zanboxx sign-in link", `Open this link within 15 minutes to get a new API key for your Zanboxx account:\n\n${PUBLIC_URL}/labs?login=${token}\n\nSigning in replaces your current API key, so the old key stops working. If you did not ask for this, ignore this email and nothing changes.`).catch((e) => console.error("mail failed:", e.message));
     }
     return send(res, 200, { sent: true, message: "If that address belongs to an account, a sign-in link is on its way." });
   }
@@ -979,7 +986,7 @@ async function route(req, res) {
     const taken = DB.emails[email] && DB.emails[email] !== acc.id;
     if (!taken) {
       const token = makeToken("verify", acc.id, email, VERIFY_MS);
-      sendMail(email, "Confirm your email for Zanboxx", `Open this link within an hour to confirm this address for your Zanboxx account:\n\n${PUBLIC_URL}/?verify=${token}\n\nOnce confirmed you can sign in with a link sent to this address if you ever lose your API key. If you did not ask for this, ignore this email.`).catch((e) => console.error("mail failed:", e.message));
+      sendMail(email, "Confirm your email for Zanboxx", `Open this link within an hour to confirm this address for your Zanboxx account:\n\n${PUBLIC_URL}/labs?verify=${token}\n\nOnce confirmed you can sign in with a link sent to this address if you ever lose your API key. If you did not ask for this, ignore this email.`).catch((e) => console.error("mail failed:", e.message));
     }
     return send(res, 200, { sent: true, message: "If the address can be used, a confirmation link is on its way." });
   }
@@ -1002,7 +1009,7 @@ async function route(req, res) {
     const s = await stripe("POST", "/v1/checkout/sessions", {
       mode: "subscription", client_reference_id: acc.id,
       line_items: [{ price: STRIPE_PRICE, quantity: 1 }],
-      success_url: PUBLIC_URL + "/?billing=success", cancel_url: PUBLIC_URL + "/?billing=cancelled",
+      success_url: PUBLIC_URL + "/labs?billing=success", cancel_url: PUBLIC_URL + "/labs?billing=cancelled",
       allow_promotion_codes: "true", billing_address_collection: "required",
       ...(acc.stripe && acc.stripe.customer ? { customer: acc.stripe.customer } : { tax_id_collection: { enabled: "true" }, ...(acc.email_verified ? { customer_email: acc.email } : {}) }),
     });
@@ -1012,7 +1019,7 @@ async function route(req, res) {
   if (m === "POST" && path === "/v1/billing/portal") {
     if (!billingOn()) throw bad(503, "billing_unavailable", "Pro plan billing is not open yet");
     if (!acc.stripe || !acc.stripe.customer) throw bad(409, "no_billing", "This account has no billing history yet");
-    const s = await stripe("POST", "/v1/billing_portal/sessions", { customer: acc.stripe.customer, return_url: PUBLIC_URL + "/" });
+    const s = await stripe("POST", "/v1/billing_portal/sessions", { customer: acc.stripe.customer, return_url: PUBLIC_URL + "/labs" });
     if (!s.url) throw bad(502, "billing_error", "The payment provider did not return a billing link");
     return send(res, 200, { url: s.url });
   }
