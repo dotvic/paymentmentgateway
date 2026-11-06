@@ -1,0 +1,31 @@
+# Staging copy of Zanboxx. Separate app, separate volume, separate data. Create it once (see RELEASING.md).
+app = 'zanboxx-staging'
+primary_region = 'ams'
+
+[build]
+
+[env]
+  DATA_FILE = '/data/data.json'
+  PORT = '8080'
+
+[[mounts]]
+  source = 'dryrun_data'
+  destination = '/data'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+    method = 'GET'
+    path = '/health'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'

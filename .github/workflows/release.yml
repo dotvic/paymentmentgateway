@@ -1,0 +1,52 @@
+name: Release
+# Push a tag like v0.4.0 to release. Tests -> staging -> verify -> production (needs approval) -> verify -> auto-rollback on failure.
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency: release
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm test
+      - run: npm run check:image
+  staging:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only --config fly.staging.toml --ha=false
+        env: { FLY_API_TOKEN: "${{ secrets.FLY_API_TOKEN_STAGING }}" }
+      - run: scripts/verify-deploy.sh https://zanboxx-staging.fly.dev
+  production:
+    needs: staging
+    runs-on: ubuntu-latest
+    environment: production   # add required reviewers in GitHub: Settings > Environments > production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Remember the image that is live now
+        id: prev
+        env: { FLY_API_TOKEN: "${{ secrets.FLY_API_TOKEN_PRODUCTION }}" }
+        run: |
+          img=$(flyctl status --app paymentmentgateway --json | jq -r '.Machines[0].config.image // empty')
+          echo "image=$img" >> "$GITHUB_OUTPUT"; echo "previous image: $img"
+      - name: Deploy
+        env: { FLY_API_TOKEN: "${{ secrets.FLY_API_TOKEN_PRODUCTION }}" }
+        run: flyctl deploy --remote-only --config fly.toml --ha=false
+      - name: Verify
+        id: verify
+        run: scripts/verify-deploy.sh https://zanboxx.com
+      - name: Roll back on failure
+        if: failure() && steps.prev.outputs.image != ''
+        env: { FLY_API_TOKEN: "${{ secrets.FLY_API_TOKEN_PRODUCTION }}" }
+        run: |
+          flyctl deploy --app paymentmentgateway --image "${{ steps.prev.outputs.image }}" --ha=false
+          scripts/verify-deploy.sh https://zanboxx.com

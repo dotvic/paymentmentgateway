@@ -262,3 +262,7 @@ Confirming an email address starts a 14-day Pro trial (once per address and once
 ## Storage and backups
 
 Data is stored in SQLite (`DB_FILE`, default next to `DATA_FILE`) using the `node:sqlite` module built into Node 22. Scheduled backups, encrypted off-site copies to any S3-compatible storage, and the restore command are described in `DEPLOY-FLY.md`. Admin endpoints (only when `ADMIN_TOKEN` is set): `GET /admin/status`, `POST /admin/backup`.
+
+## Releases and CI
+
+Every push runs tests, an image check, the UI test, secret scanning and CodeQL. Releases are tag-driven with staging, approval and automatic rollback. See [RELEASING.md](RELEASING.md).
