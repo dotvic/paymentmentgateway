@@ -1,4 +1,4 @@
-FROM node:22-alpine
+FROM node:25-alpine
 WORKDIR /app
 COPY package.json server.js tds.js store.js backup.js schemes.js disputes.js settlement.js mcp.js tutor.js glossary.js emv.js mag.js cardpresent.js siteui.js site.js md.js risk.js ./
 COPY sections ./sections
