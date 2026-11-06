@@ -58,7 +58,7 @@ const PAGES = {}, ASSETS = {};
   const idx = read("index.html");
   if (idx) {
     const bar = SITEUI.nav("labs"), css = ".sitebar{background:var(--term);color:var(--term-ink);font-size:14px}.sitebar .wrap{display:flex;flex-wrap:wrap;gap:2px 18px;align-items:center;padding-top:8px;padding-bottom:8px;max-width:none;margin:0}.sitebar a{color:var(--term-mute);text-decoration:none;padding:2px 0}.sitebar a:hover,.sitebar a[aria-current]{color:#fff}.sitebar a[aria-current]{border-bottom:2px solid var(--sun)}.sitebar .sb-brand{color:#fff;font-weight:700;display:flex;gap:6px;align-items:center;margin-right:8px}";
-    const labs = idx.replace("</style>", css + "</style>").replace("<body>", "<body>" + bar + '<div style="padding:6px clamp(16px,4vw,32px);font-size:14px">More labs: <a href="/labs/risk">Risk engine</a> · <a href="/labs/controls">Card controls and idempotency</a> · <a href="/labs/tokens">Tokenization</a> · <a href="/labs/kpis">Payment KPIs</a></div>');
+    const labs = idx.replace("</style>", css + "</style>").replace("<body>", "<body>" + bar + '<div style="padding:6px clamp(16px,4vw,32px);font-size:14px">More labs: <a href="/labs/risk">Risk engine</a> · <a href="/labs/controls">Card controls and idempotency</a> · <a href="/labs/tokens">Tokenization</a> · <a href="/labs/agents">Agent payments</a> · <a href="/labs/kpis">Payment KPIs</a></div>');
     PAGES["/labs"] = PAGES["/labs/"] = { body: Buffer.from(labs), script: true };
     PAGES["/index.html"] = PAGES["/labs"];
   }

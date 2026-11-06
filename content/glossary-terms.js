@@ -85,4 +85,12 @@ module.exports = [
   ["Token cryptogram", "A one-time value generated for each token payment and checked by the issuer. A copy of a past payment cannot be replayed."],
   ["Token lifecycle", "The stages of a token: provisioning, activation after identity checks, use, suspension, resumption and deletion."],
   ["PAN (primary account number)", "The long number on the front of a card. It is the most sensitive piece of card data and the one tokenization tries to keep out of merchants' systems."],
+  ["Agentic AI", "AI that plans and takes actions toward a goal, such as searching, comparing and buying, instead of only answering questions."],
+  ["Mandate", "The permission an account holder gives an agent: what it may buy, where, how much, for how long, and when it must ask first. It is enforced by the payment system, not by the agent."],
+  ["Human in the loop", "A person approves certain actions before they happen, for example any purchase above a set amount."],
+  ["Prompt injection", "Text in a web page, email or document that tries to give an AI new instructions, such as 'ignore your limits'. Defend with controls outside the model, not by trusting it to refuse."],
+  ["Hallucination", "When a generative AI states something that sounds right but is made up. It is why answers about payments should be grounded in real data and documents."],
+  ["RAG (retrieval-augmented generation)", "Giving a language model relevant, approved documents or data to answer from, instead of relying on what it remembers. It makes answers more accurate and traceable."],
+  ["Controlled autonomy", "Letting an AI act on its own only inside limits that are enforced, logged and reviewable, with a person able to step in or revoke it."],
+  ["Precision and recall", "For a fraud model: precision is how many flagged payments really were fraud; recall is how much of the fraud it caught. Raising one usually lowers the other."],
 ];

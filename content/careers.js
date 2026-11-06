@@ -25,4 +25,8 @@ module.exports = [
     day: "Validates a problem, picks a regulatory route, chooses partners and pricing, launches.",
     skills: [["Card payment basics", "card-payments"], ["Disputes and risk", "disputes"], ["Settlement and unit economics", "settlement"]],
     labs: "Prototype your flows in the sandbox before you integrate a real provider.", learn: ["startups"] },
+  { id: "ai-payments-engineer", title: "AI in payments engineer", summary: "Builds and governs AI features in payment products: fraud models, assistants and agent payments.",
+    day: "Designs grounded assistants, wires models into risk decisions, sets limits and approvals for agents, and monitors accuracy and drift.",
+    skills: [["AI, GenAI and agentic payments", "ai-in-payments"], ["Fraud patterns and risk scoring", "fraud-and-risk"], ["API security and safe retries", "api-security"], ["Tokenization and wallets", "tokenization"]],
+    labs: "Tune the risk engine lab, give a simulated agent a mandate and try to make it overspend, and use the sandbox through the MCP server.", learn: ["knowledge/agentic-payments", "knowledge/risk-and-fraud"] },
 ];

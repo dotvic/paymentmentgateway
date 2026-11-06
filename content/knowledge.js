@@ -216,6 +216,41 @@ A token does not authenticate the customer. It also moves trust to whoever runs 
 
 The [tokenization lab](/labs/tokens) simulates provisioning, activation, domain checks, cryptograms, suspension and a card reissue, with test cards only. The [tokenization course](/academy/tokenization) walks through it.` });
 
+pages.push({ slug: "agentic-payments", title: "Agentic payments and AI controls", category: "Concepts", summary: "What changes when software buys on a person's behalf, and the controls that keep it safe.", markdown: `## From assistant to agent
+
+A chatbot answers. An **agent** acts: it searches, compares, decides and, with the right access, pays. That changes the question from "can we move the money?" to "can software move money for a person while identity, intent, limits and accountability stay intact?"
+
+## What a payment system must know
+
+| Question | Control |
+|---|---|
+| Who is the customer? | Normal authentication of the account holder |
+| Which agent is acting? | A separate credential for each agent, never the person's own key |
+| What was it asked to do? | The stated intent, kept in the audit trail |
+| What may it buy? | An allow-list of merchants or categories |
+| How much? | A per-purchase limit and a total budget |
+| For how long? | An expiry, and revocation at any time |
+| When must a person agree? | A confirmation rule above a set amount |
+| Can we prove what happened? | An audit log of every request and decision |
+
+Together these make a **mandate**.
+
+## Enforce outside the model
+
+Language models can be wrong, and can be tricked by text in a web page or email (**prompt injection**). Asking the model to behave is not a control. The limits must live in the payment system, so a confused or compromised agent hits the same wall. Agents also retry, so every request should carry a unique ID that makes a repeat harmless (see [idempotency](/knowledge/idempotency-and-retries)).
+
+## Human in the loop
+
+Small, routine purchases can run on their own. Larger or unusual ones should pause for approval. The person should see the merchant, the amount and the reason before they decide.
+
+## AI elsewhere in payments
+
+AI also helps with fraud scoring ([risk scoring](/knowledge/risk-and-fraud)), routing, reconciliation and support. Grounding answers in real data and documents (**RAG**) reduces made-up answers. Whatever the use, keep a person responsible, log decisions, and measure the model: precision and recall, false positives, drift and, for text models, how often they are wrong.
+
+## Try it
+
+The [agent payments lab](/labs/agents) lets you give a simulated agent a mandate and try to make it overspend. The [AI in payments course](/academy/ai-in-payments) covers the rest.` });
+
 pages.push({ slug: "test-cards", title: "Test cards", category: "Reference", summary: "Every test card for Visa, Mastercard and American Express, and what each one does.",
   markdown: "Use these numbers with any future expiry. Visa and Mastercard use a 3-digit security code, American Express a 4-digit one. The PIN for card-present tests is `1234`. Real card numbers are always refused.\n\n" +
     Object.values(SCH.SCHEMES).map((s) => `## ${s.name}\n\n${s.note}\n\n| Number | What it does |\n| --- | --- |\n` + SCH.TEST_CARDS.filter((c) => c.scheme === s.id).map((c) => `| \`${c.number}\` | ${c.label} |`).join("\n")).join("\n\n") });

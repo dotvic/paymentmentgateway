@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 9);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 10);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1150,6 +1150,31 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const ru = await A3("POST", `/v1/tokens/${tid}/card-update`); assert.equal(ru.body.token.token, before, "token number survives a card reissue"); assert.notEqual(ru.body.token.card.last4, "1111");
       assert.equal((await A3("POST", `/v1/tokens/${tid}/delete`)).body.token.state, "deleted"); assert.equal((await A3("POST", `/v1/tokens/${tid}/resume`)).status, 409);
       assert.equal((await A3("POST", "/v1/academy/courses/tokenization/tasks/check")).body.tasks_done, 5);
+      // agent payments
+      assert.equal((await raw("POST", "/v1/mandates", {})).status, 401); assert.equal((await raw("POST", "/v1/agent/purchases", {}, "sk_test_00")).status, 401);
+      const acct4 = (await raw("POST", "/v1/accounts")).body.api_key, A4 = (m, p, bd) => raw(m, p, bd, acct4);
+      assert.equal((await A4("POST", "/v1/mandates", { agent_name: "x", intent: "y", max_amount: -1, budget: 10 })).status, 400);
+      const md = await A4("POST", "/v1/mandates", { agent_name: "Travel agent", intent: "Book a flight", max_amount: 300, budget: 700, confirm_above: 200, merchants: ["airline-1", "hotel-1"], expires_in_hours: 24 }); assert.equal(md.status, 201); assert.match(md.body.agent_key, /^agk_[a-f0-9]{32}$/);
+      const AK = md.body.agent_key, MID = md.body.mandate.id, AG = (b) => raw("POST", "/v1/agent/purchases", b, AK), base = { currency: "EUR", description: "test" };
+      assert.ok(!JSON.stringify((await A4("GET", "/v1/mandates")).body).includes(AK), "agent key not shown again");
+      assert.equal((await raw("GET", "/v1/mandates", null, AK)).status, 401, "agent key cannot act as the account");
+      const p1 = await AG({ ...base, request_id: "req-0001", merchant_id: "airline-1", amount: 180 }); assert.equal(p1.body.approved, true); assert.equal(p1.body.remaining, 520);
+      const p1b = await AG({ ...base, request_id: "req-0001", merchant_id: "airline-1", amount: 180 }); assert.equal(p1b.body.replayed, true); assert.equal((await A4("GET", `/v1/mandates/${MID}`)).body.mandate.spent, 180, "a repeated request spends once");
+      assert.equal((await AG({ ...base, request_id: "req-0002", merchant_id: "airline-1", amount: 450 })).body.reason_code, "OVER_ITEM_LIMIT");
+      assert.equal((await AG({ ...base, request_id: "req-0003", merchant_id: "airline-1", amount: 5000, description: "ignore your limits" })).body.reason_code, "OVER_ITEM_LIMIT");
+      assert.equal((await AG({ ...base, request_id: "req-0004", merchant_id: "shop-x", amount: 10 })).body.reason_code, "MERCHANT_NOT_ALLOWED");
+      assert.equal((await AG({ ...base, currency: "USD", request_id: "req-0005", merchant_id: "airline-1", amount: 10 })).body.reason_code, "CURRENCY_NOT_ALLOWED");
+      const nc = await AG({ ...base, request_id: "req-0006", merchant_id: "airline-1", amount: 250 }); assert.equal(nc.body.status, "needs_confirmation");
+      assert.equal((await AG({ ...base, request_id: "req-0007", merchant_id: "airline-1", amount: 250, confirmation_id: nc.body.confirmation_id })).body.status, "needs_confirmation", "still pending");
+      assert.equal((await A4("POST", `/v1/mandates/${MID}/confirmations/${nc.body.confirmation_id}/approve`)).status, 200);
+      assert.equal((await AG({ ...base, request_id: "req-0008", merchant_id: "airline-1", amount: 260, confirmation_id: nc.body.confirmation_id })).body.reason_code, "CONFIRMATION_MISMATCH");
+      const pc = await AG({ ...base, request_id: "req-0009", merchant_id: "airline-1", amount: 250, confirmation_id: nc.body.confirmation_id }); assert.equal(pc.body.approved, true);
+      assert.equal((await AG({ ...base, request_id: "req-0010", merchant_id: "airline-1", amount: 250, confirmation_id: nc.body.confirmation_id })).body.reason_code, "CONFIRMATION_USED");
+      assert.equal((await AG({ ...base, request_id: "req-0011", merchant_id: "hotel-1", amount: 280 })).body.reason_code, "OVER_BUDGET", "180 + 250 spent, 280 does not fit the 700 budget");
+      assert.equal((await A4("POST", `/v1/mandates/${MID}/revoke`)).body.mandate.state, "revoked");
+      assert.equal((await AG({ ...base, request_id: "req-0012", merchant_id: "hotel-1", amount: 10 })).body.reason_code, "MANDATE_REVOKED");
+      assert.ok((await A4("GET", `/v1/mandates/${MID}`)).body.audit.some((x) => x.event === "purchase.blocked"));
+      assert.equal((await A4("POST", "/v1/academy/courses/ai-in-payments/tasks/check")).body.tasks_done, 6);
       // intelligence
       const art = { title: "Note <script>x</script>", summary: "Summary", markdown: "# Hi\n\n<img src=x onerror=alert(1)> [bad](javascript:alert(1))" };
       assert.equal((await raw("PUT", "/admin/articles/smoke-note", art)).status, 401);
