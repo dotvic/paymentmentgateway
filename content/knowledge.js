@@ -379,6 +379,50 @@ Practise assembling evidence in the dispute lab: pick evidence that fits the cat
 
 Contact customers who truly received goods and keep the chargeback, politely first by email, then phone, then a collections agency for larger amounts. Track chargebacks **by reason**, show gross and **net after representment**, and track card-present and card-absent separately, and web separately from phone and mail. Card schemes watch merchant dispute and fraud ratios monthly; too high and your acquirer will ask for a reduction plan, and in the worst case you can lose protections or be placed in a higher-risk programme. Related: [Payment lifecycle](/knowledge/payment-lifecycle), [E-commerce fraud schemes](/knowledge/ecommerce-fraud-schemes).` });
 
+pages.push({ slug: "wallet-provisioning-issuer-view", title: "Wallet provisioning and tokens: the issuer's view", category: "Concepts", summary: "What happens when a card is added to a phone wallet, how the issuer decides, and what it sees when the token is used.", markdown: `Adding a card to a phone or watch wallet involves four parties: the **cardholder**, the **wallet provider**, a **token service** run by the card network, and the **issuer**. This guide follows the flow from the issuer's side. The merchant and wallet side is in [Tokenization](/knowledge/tokenization).
+
+## Two numbers
+
+- The **funding account number** (FPAN) is the real card number.
+- The **device account number** (DPAN, the token) replaces it. It lives in the token service's vault and on the device or a secure server. It is specific to that device, works only for wallet payments, matches the card's type, billing country, currency and issuer, comes from its own reserved number ranges and expires after a set period (often years, and the limit varies by service).
+
+**Tokenization** is swapping the number. **Digitization** is delivering the tokenized card to the device. Because merchants and acquirers only ever see the token, a breach on their side exposes numbers that are useless elsewhere. Only the network turns the token back into the real number for the issuer.
+
+## Step 1: the eligibility decision
+
+The issuer is asked whether this card may be added. It receives the real card number and expiry, the wallet and device type, the security code and address the customer typed, and the wallet provider's own risk recommendation: device score, account score, device location, device network address, reason codes and how many tokens already exist for the card. It answers with one of three decisions:
+
+- **Green path: approve.** The token is created at once.
+- **Yellow path: approve, but verify first.** The issuer proves it is the real cardholder before activation.
+- **Red path: decline.**
+
+Good practice: one weak signal alone usually means verify, not refuse. Several signals that agree (new device, far from the cardholder, wrong code and address, many tokens) mean decline. Try the decisions in the [issuer lab](/labs/issuer).
+
+## Step 2: the activation code
+
+On the yellow path the issuer chooses how the cardholder gets a one-time code: a masked mobile number, a masked email, an automated or voice call, the call centre, a website or the banking app. Use a contact you already hold, never one typed into the request. A method chosen in the reply overrides any default set up for the card range. Limit the attempts: after too many wrong or expired codes the token is deactivated and the customer starts again.
+
+## Step 3: notifications
+
+The issuer is told when the code is delivered, when the token's state changes (suspended, resumed, deactivated, or an exception such as retries exceeded, expired code or a wrong code), and when tokenization completes, which includes the token, its expiry and the final decision (green or yellow). The issuer must reply, but the reply does not change the outcome.
+
+## At payment time
+
+1. The acquirer sends the token, its expiry, how the card was read and, for chip payments, the chip data.
+2. The token service maps the token to the real number, checks the token's expiry, checks the transaction counter and validates the cryptogram (or the dynamic code for stripe-style contactless). The chip data is not forwarded.
+3. The issuer receives the real number and expiry, the wallet identifier and flags saying a token was used and the cryptogram was valid.
+4. The issuer checks the real card's expiry and standing and approves or declines. If the real card expires, the issuer must update the token service so the token keeps working.
+
+In clearing the issuer again sees the real number plus a token marker, the assurance level and which party requested the token. Retrievals and chargebacks use the real number.
+
+## Operations
+
+Issuers need a way to map real numbers to tokens (messages, a customer-service API, a portal or bulk upload), customer-service tools to investigate and re-provision, and reporting on enablement, eligibility decisions, activation success and verification outcomes. An API is generally the better option than a portal for scale.
+
+## Why customers like it
+
+Tap-and-go is fast, the phone is always in hand and the real number never leaves the secure store. Related: [Tokenization](/knowledge/tokenization), [Risk scoring and fraud controls](/knowledge/risk-and-fraud), [Tokenization course](/academy/tokenization).` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

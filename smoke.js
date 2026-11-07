@@ -1077,7 +1077,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
@@ -1216,6 +1216,24 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const GOOD = { currency: "985", mac_enabled: true, reversal_on_timeout: true, floor_limit: 0 };
       assert.equal((await raw("GET", "/v1/acquiring")).status, 401);
       // phase 1: scope, account, keys, validation
+      { // issuer view of wallet provisioning
+        const AI = await fresh();
+        assert.equal((await raw("GET", "/v1/issuer/payment-view")).status, 200);
+        const iv = await AI("GET", "/v1/issuer"); assert.equal(iv.body.scenarios.length, 6); assert.ok(!JSON.stringify(iv.body.scenarios).includes("expected"), "answers hidden");
+        assert.equal((await AI("POST", "/v1/issuer/decide", { scenario: "s1", decision: "step_up" })).status, 400, "step up needs a method");
+        const d1 = await AI("POST", "/v1/issuer/decide", { scenario: "s1", decision: "approve" }); assert.equal(d1.body.correct, true);
+        assert.equal((await AI("POST", "/v1/issuer/decide", { scenario: "s1", decision: "approve" })).status, 409);
+        assert.equal((await AI("POST", "/v1/issuer/decide", { scenario: "s2", decision: "approve" })).body.correct, false);
+        assert.equal((await AI("POST", "/v1/issuer/decide", { scenario: "s3", decision: "step_up", method: 6 })).body.correct, true);
+        assert.equal((await AI("POST", "/v1/issuer/decide", { scenario: "s5", decision: "decline" })).body.correct, true);
+        assert.equal((await AI("POST", "/v1/issuer/activation/enter", { code: "123456" })).status, 409);
+        await AI("POST", "/v1/issuer/activation/start", { method: 1 });
+        for (let i = 0; i < 2; i++) assert.equal((await AI("POST", "/v1/issuer/activation/enter", { code: "000000" })).body.event, "activation_code_incorrect");
+        assert.equal((await AI("POST", "/v1/issuer/activation/enter", { code: "000000" })).body.event, "token_deactivated");
+        await AI("POST", "/v1/issuer/activation/start", { method: 2 });
+        assert.equal((await AI("POST", "/v1/issuer/activation/enter", { code: "123456" })).body.event, "tokenization_complete");
+        { const tk = (await AI("POST", "/v1/academy/courses/tokenization/tasks/check")).body.tasks; assert.ok(tk.decide && tk.yellow, "issuer tasks verify"); }
+      }
       const A5 = await fresh();
       assert.equal((await A5("POST", "/v1/acquiring/account")).status, 409, "scope first");
       assert.equal((await A5("PUT", "/v1/acquiring/project", { ...base, caps: ["refund"] })).status, 400, "must read cards");
