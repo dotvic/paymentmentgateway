@@ -210,4 +210,27 @@ module.exports = [
       T("confirm", "Approve a purchase as the account holder and see it complete.", "Use 'Buy a 250 flight', then Approve.", (a) => !!(a.agt && a.agt.confirmed > 0)),
       T("revoke", "Revoke the mandate and see the agent blocked.", "Press Revoke, then try a purchase.", (a) => !!(a.agt && a.agt.revoked_blocked > 0)),
     ] },
+  { id: "pos-acquiring", title: "POS acquiring and certification", level: "Advanced", minutes: 50, summary: "How terminals get approved with an acquirer: host certification, Level 1, 2 and 3, test accounts, keys, log checks and when to certify again.",
+    lessons: [
+      { title: "Who certifies what", md: "Three approvals exist. **Acquirer host certification** checks the interface between the acquirer and a card scheme. **Level 1 and 2** approve the terminal's hardware and its payment kernel, once, by an accredited lab. **Level 3** checks one deployment: this terminal, configured this way, with this acquirer, for each scheme. Level 3 can only be requested once Level 1 and 2 are in place." },
+      { title: "The message and its data elements", md: "Terminals and acquirers exchange ISO 8583 style messages: a message type, a bitmap and numbered **data elements**. DE4 is the amount, DE3 the processing code, DE22 how the card was read, DE41 and DE42 the terminal and merchant IDs, DE55 the chip data, DE64 the message authentication code. A wrong value in one of them is the most common reason a Level 3 test fails." },
+      { title: "Scope and test cases", md: "What you must test depends on the **terminal type** (POS, mobile POS, ATM, unattended), its **capabilities** (chip, contactless, stripe, fallback, PIN types, cashback, refunds, risk management), the **merchant category** and the **country**. A mobile POS reports a different terminal level from a countertop device. A transit merchant must support offline verification. List the cases before you start, not after." },
+      { title: "Logs, keys and setup", md: "A test tool plays the card and a simulator plays the scheme and issuer. You compare the **card-terminal log** with the **network log**: do amount, entry mode, currency and chip cryptogram agree? Setup needs a test merchant and terminal ID, a terminal profile, a connection, and for online PIN and MAC a **key ceremony**: two custodians, two components, check values to catch typos, a hardware security module to combine them, and separate ceremonies for test and production." },
+      { title: "When to certify again", md: "Certify again when you launch for a new scheme, change the payment flow or add a function like cashback or refunds, change how the terminal's messages map to the host, put a new system between terminal and acquirer, or move to new hardware or a new kernel. A cosmetic change does not need it. Plan roughly two weeks per test iteration plus one to two weeks of review, for every scheme and every terminal model." },
+    ],
+    quiz: [
+      Q("Which approval can only be requested after Level 1 and Level 2?", ["Acquirer host certification", "Level 3", "A key ceremony", "Production onboarding"], 1, "Level 3 tests a deployment of a terminal that already has its hardware and kernel approvals."),
+      Q("DE4 in the network message differs from the amount on the card log. What is the likely effect?", ["Nothing, it is only a label", "The test fails and the issuer cannot trust the cryptogram", "The terminal gets a new ID", "The key ceremony repeats"], 1, "The amount must be the same on both sides, because the cryptogram covers it."),
+      Q("What is a check value on a key component for?", ["It encrypts the component", "It catches typing mistakes when a custodian enters the component", "It replaces the key", "It proves the terminal is approved"], 1, "A mistyped component gives a different check value."),
+      Q("You add purchase with cashback, which the acquirer host never processed. What is needed?", ["Nothing", "Only a new receipt", "Host certification and Level 3", "Only Level 1"], 2, "A new transaction type needs the host proven first, then the terminal."),
+      Q("You change only the wording on the receipt. What is needed?", ["Level 3 again", "Host certification", "Level 1 and 2 again", "No certification"], 3, "It does not touch the payment flow or the messages."),
+      Q("Why are test and production keys exchanged in separate ceremonies?", ["To save time", "So a test key never protects live traffic", "Because tests use a different card", "Because production has no keys"], 1, "Keeping them apart limits the damage if a test key leaks."),
+    ],
+    tasks: [
+      T("scope", "Scope a certification project.", "Open /labs/acquiring and save a scope with your terminal type, schemes and MCC.", (a) => !!(a.acq && a.acq.project)),
+      T("keys", "Complete the test key ceremony.", "Start the ceremony for test, then load both components with their check values.", (a) => !!(a.acq && a.acq.keys && a.acq.keys.test && a.acq.keys.test.state === "active")),
+      T("defect", "Inject a defect and see the checker catch it.", "Pick a practice defect in step 4 and run a test case.", (a) => !!(a.acq && a.acq.practice > 0)),
+      T("approval", "Pass every applicable test case and receive approval letters.", "Fix the terminal profile until Run all passes, then Submit.", (a) => !!(a.acq && a.acq.loa && a.acq.loa.length > 0)),
+      T("recert", "Answer six recertification scenarios correctly.", "Use step 6 in the lab.", (a) => !!(a.acq && a.acq.change_correct && a.acq.change_correct.length >= 6)),
+    ] },
 ];

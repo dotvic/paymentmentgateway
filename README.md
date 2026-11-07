@@ -266,3 +266,7 @@ Data is stored in SQLite (`DB_FILE`, default next to `DATA_FILE`) using the `nod
 ## Releases and CI
 
 Every push runs tests, an image check, the UI test, secret scanning and CodeQL. Releases are tag-driven with staging, approval and automatic rollback. See [RELEASING.md](RELEASING.md).
+
+## POS acquiring and certification lab
+
+`/labs/acquiring` practises getting a terminal certified with an acquirer: scope a project (terminal type, capabilities, schemes, MCC, country), get a test merchant and terminal ID, run a key ceremony (two components with check values; test and production are separate), set the terminal profile, run the applicable test cases that compare the card-terminal log with the network message (ISO 8583 style data elements), then submit for approval letters. Host certification comes before Level 3 when a new transaction type is involved. Results and approvals apply to one exact profile, so a change makes them stale. It also has a recertification trainer and a timeline estimator. API under `/v1/acquiring`. Everything is simulated with made-up keys and invented rules; test cards only. Guide: `/knowledge/pos-acquiring-and-certification`, course: `/academy/pos-acquiring`.

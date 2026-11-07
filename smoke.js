@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 10);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 11);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1205,6 +1205,72 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await raw("POST", `/admin/startups/${sc.body.id}/approve`, null, ADM)).body.status, "approved"); assert.match((await raw("GET", "/startups/directory")).text, /PayCo/);
       assert.equal((await A("DELETE", "/v1/startups/directory/" + sc.body.id)).status, 200);
       key = undefined;
+
+    // POS acquiring and certification lab (free accounts allow 30 requests a minute, so each phase uses a fresh account)
+    {
+      const fresh = async () => { const k = (await raw("POST", "/v1/accounts")).body.api_key; return (m, p, bd) => raw(m, p, bd, k); };
+      const base = { terminal_type: "pos", model: "Model A", country: "PL", mcc: "5411", caps: ["chip", "contactless", "online_pin", "refund"], schemes: ["visa", "mastercard"], l1: true, l2: true };
+      const ceremony = async (X, env, expectOk) => { const ks = (await X("POST", `/v1/acquiring/keys/${env}/start`)).body.components; await X("POST", `/v1/acquiring/keys/${env}/load`, { part: "a", value: ks.a.value, check_value: ks.a.check_value }); return (await X("POST", `/v1/acquiring/keys/${env}/load`, { part: "b", value: ks.b.value, check_value: ks.b.check_value })).body; };
+      const GOOD = { currency: "985", mac_enabled: true, reversal_on_timeout: true, floor_limit: 0 };
+      assert.equal((await raw("GET", "/v1/acquiring")).status, 401);
+      // phase 1: scope, account, keys, validation
+      const A5 = await fresh();
+      assert.equal((await A5("POST", "/v1/acquiring/account")).status, 409, "scope first");
+      assert.equal((await A5("PUT", "/v1/acquiring/project", { ...base, caps: ["refund"] })).status, 400, "must read cards");
+      assert.equal((await A5("PUT", "/v1/acquiring/project", { ...base, terminal_type: "atm", caps: ["chip"] })).status, 400, "ATM needs online PIN");
+      const pr = await A5("PUT", "/v1/acquiring/project", { ...base, l1: false, l2: false }); assert.equal(pr.status, 200);
+      assert.equal(pr.body.scope.host_certification.required, false); assert.equal(pr.body.scope.l3.runs, 2);
+      assert.deepEqual(pr.body.scope.cases.map((c) => c.id).sort(), ["chip_online", "contactless", "decline", "online_pin", "refund", "reversal"]);
+      assert.equal((await A5("POST", "/v1/acquiring/tests/chip_online/run", {})).status, 409, "needs account");
+      const ac = await A5("POST", "/v1/acquiring/account"); assert.equal(ac.status, 201); assert.equal((await A5("POST", "/v1/acquiring/account")).body.account.mid, ac.body.account.mid, "account is stable");
+      assert.equal((await A5("POST", "/v1/acquiring/tests/chip_online/run", {})).body.error.code, "no_l1_l2", "L3 needs L1 and L2 first");
+      assert.equal((await A5("PUT", "/v1/acquiring/project", base)).status, 200);
+      const f1 = (await A5("POST", "/v1/acquiring/tests/chip_online/run", {})).body.run; assert.equal(f1.passed, false);
+      const failed = f1.checks.filter((c) => !c.ok).map((c) => c.name); assert.ok(failed.some((n) => /currency/i.test(n)) && failed.some((n) => /MAC/.test(n)), JSON.stringify(failed));
+      assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: "0".repeat(32), check_value: "000000" })).status, 409, "ceremony first");
+      const ks = (await A5("POST", "/v1/acquiring/keys/test/start")).body.components; assert.match(ks.a.value, /^[0-9a-f]{32}$/);
+      const typo = ks.a.value.slice(0, 31) + (ks.a.value.endsWith("0") ? "1" : "0");
+      assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: typo, check_value: ks.a.check_value })).body.error.code, "check_value_mismatch");
+      assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: ks.b.value, check_value: ks.b.check_value })).body.error.code, "unknown_component");
+      assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: ks.a.value, check_value: ks.a.check_value })).body.state, "issued");
+      const done = await A5("POST", "/v1/acquiring/keys/test/load", { part: "b", value: ks.b.value, check_value: ks.b.check_value }); assert.equal(done.body.state, "active"); assert.match(done.body.check_value, /^[0-9A-F]{6}$/);
+      const v = (await A5("GET", "/v1/acquiring")).body; assert.equal(v.keys.test.state, "active"); assert.ok(!JSON.stringify(v).includes(ks.a.value), "components are not kept");
+      assert.equal((await A5("PUT", "/v1/acquiring/config", { floor_limit: -1 })).status, 400); assert.equal((await A5("PUT", "/v1/acquiring/config", { mac_enabled: "yes" })).status, 400);
+      assert.equal((await A5("POST", "/v1/acquiring/submit")).body.error.code, "not_ready");
+      // phase 2: pass everything, practice defects, stale results, approval
+      const A6 = await fresh(); await A6("PUT", "/v1/acquiring/project", base); await A6("POST", "/v1/acquiring/account"); await ceremony(A6, "test"); assert.equal((await A6("PUT", "/v1/acquiring/config", GOOD)).status, 200);
+      const ra = await A6("POST", "/v1/acquiring/tests/run-all", { scheme: "visa" }); assert.equal(ra.body.passed, ra.body.total, JSON.stringify(ra.body));
+      const dm = (await A6("POST", "/v1/acquiring/tests/chip_online/run", { defect: "amount" })).body.run; assert.equal(dm.passed, false); assert.equal(dm.checks.find((c) => /Amount/.test(c.name)).ok, false);
+      assert.equal((await A6("POST", "/v1/acquiring/tests/chip_online/run", { defect: "mac" })).body.run.passed, false);
+      assert.equal((await A6("POST", "/v1/acquiring/tests/reversal/run", { defect: "no_reversal" })).body.run.passed, false);
+      assert.equal((await A6("POST", "/v1/acquiring/tests/chip_online/run", { defect: "bogus" })).status, 400);
+      assert.equal((await A6("GET", "/v1/acquiring")).body.cases.every((c) => c.passed), true, "defect runs do not overwrite results");
+      await A6("PUT", "/v1/acquiring/config", { key_env: "prod" }); const wk = (await A6("POST", "/v1/acquiring/tests/chip_online/run", {})).body.run; assert.ok(wk.checks.find((c) => /MAC/.test(c.name)).actual.includes("no prod key"));
+      assert.equal((await A6("GET", "/v1/acquiring")).body.cases.some((c) => c.passed), false, "stale after profile change");
+      await A6("PUT", "/v1/acquiring/config", { key_env: "test" }); assert.equal((await A6("POST", "/v1/acquiring/tests/run-all", { scheme: "mastercard" })).body.passed, 6);
+      const sub = await A6("POST", "/v1/acquiring/submit"); assert.equal(sub.status, 200); assert.equal(sub.body.loa.length, 2); assert.match(sub.body.loa[0].id, /^loa_/);
+      assert.equal((await A6("GET", "/v1/acquiring")).body.loa_valid, true);
+      await A6("PUT", "/v1/acquiring/config", { cat_level: "1" }); assert.equal((await A6("GET", "/v1/acquiring")).body.loa_valid, false, "approval does not survive a profile change");
+      assert.equal((await A6("POST", "/v1/academy/courses/pos-acquiring/tasks/check")).body.tasks_done, 4, "scope, keys, defect and approval verified");
+      // phase 3: host certification first, mobile POS and transit rules, trainer, timeline
+      const A7 = await fresh(); await A7("PUT", "/v1/acquiring/project", { ...base, caps: [...base.caps, "cashback"] }); await A7("POST", "/v1/acquiring/account"); await ceremony(A7, "test"); await A7("PUT", "/v1/acquiring/config", GOOD);
+      assert.equal((await A7("GET", "/v1/acquiring")).body.scope.host_certification.required, true);
+      assert.equal((await A7("POST", "/v1/acquiring/tests/chip_online/run", {})).body.error.code, "host_first");
+      const hc = (await A7("POST", "/v1/acquiring/tests/host_cashback/run", {})).body.run; assert.equal(hc.passed, false); assert.ok(hc.checks.find((c) => /Cashback/.test(c.name) && !c.ok));
+      await A7("PUT", "/v1/acquiring/config", { cashback_enabled: true }); assert.equal((await A7("POST", "/v1/acquiring/tests/host_cashback/run", {})).body.run.passed, true);
+      assert.equal((await A7("POST", "/v1/acquiring/tests/chip_online/run", {})).status, 200, "L3 allowed after host");
+      await A7("PUT", "/v1/acquiring/project", { ...base, terminal_type: "mpos", mcc: "4111", caps: ["contactless", "online_pin"] });
+      assert.ok((await A7("GET", "/v1/acquiring")).body.scope.gaps.length > 0, "transit needs offline PIN and signature");
+      assert.equal((await A7("POST", "/v1/acquiring/submit")).body.error.code, "scope_gap");
+      const chg = (await A7("GET", "/v1/acquiring/changes")).body.data; assert.equal(chg.length, 8); assert.ok(!JSON.stringify(chg).includes('"host"'), "answers are not sent");
+      assert.equal((await A7("POST", "/v1/acquiring/changes/ch4/answer", { host: true, l1l2: false, l3: false })).body.correct, false);
+      assert.equal((await A7("POST", "/v1/acquiring/changes/ch4/answer", { host: false, l1l2: false, l3: false })).body.correct, true);
+      assert.equal((await A7("POST", "/v1/acquiring/changes/ch3/answer", { host: false, l1l2: true, l3: true })).body.correct, true);
+      assert.equal((await A7("POST", "/v1/acquiring/changes/ch3/answer", { host: "no" })).status, 400);
+      const tl = (await A7("GET", "/v1/acquiring/timeline?schemes=2&models=1&iterations=1&impl_weeks=8&host=false")).body; assert.deepEqual(tl.total_weeks, [1 + 8 + 4 + 6, 2 + 8 + 4 + 8]);
+      assert.ok((await A7("GET", "/v1/acquiring/timeline?schemes=2&host=true")).body.total_weeks[0] > tl.total_weeks[0] - 1, "host certification adds time");
+      assert.equal((await A7("GET", "/v1/acquiring/timeline?schemes=999&models=-4")).body.inputs.schemes, 7);
+    }
     }
 
     console.log("All checks passed");

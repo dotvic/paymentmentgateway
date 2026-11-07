@@ -261,6 +261,40 @@ pages.push({ slug: "status-codes", title: "Status and response codes", category:
 pages.push({ slug: "glossary", title: "Glossary", category: "Reference", summary: `${TERMS.length} payments terms in plain language.`,
   markdown: TERMS.slice().sort((a, b) => a[0].localeCompare(b[0])).map(([t, d]) => `### ${t}\n\n${d}`).join("\n\n") });
 
+pages.push({ slug: "pos-acquiring-and-certification", title: "POS acquiring and certification", category: "Concepts", summary: "How a payment terminal gets approved to work with an acquirer: host certification, Level 1, 2 and 3, test accounts, keys, logs and when to certify again.", markdown: `## Why terminals are certified
+
+A terminal is not just a screen with a card reader. It builds a message, signs it, sends it through an acquirer and a card scheme to an issuer, and must act correctly on the answer. If it fills one field wrongly, the payment can fail, be priced wrongly or shift liability. So every acquirer and card scheme tests terminals before they go live, and tests them again when something important changes.
+
+## The three kinds of approval
+
+**Acquirer host certification** checks the interface between the acquirer and a card scheme: that the acquirer's systems build and read the scheme's messages correctly. The messages follow the ISO 8583 style: a message type, a bitmap and numbered *data elements* such as DE4 (amount) or DE22 (how the card was read). Host certification is needed when the acquirer adds something new, such as a new transaction type or a new scheme.
+
+**Level 1 and Level 2** approve the terminal itself. Level 1 covers the hardware and the low-level communication with the card. Level 2 covers the payment kernel, the software that runs the card conversation. An accredited laboratory performs them once per terminal model and kernel, and a letter of approval is issued. For contactless there is one approval per scheme's kernel.
+
+**Level 3** checks one deployment: this terminal, configured this way, connected to this acquirer, for this scheme. It can only be requested for a terminal that already has Level 1 and 2. It is repeated for every scheme and every terminal model.
+
+## How a Level 3 test is done
+
+A test tool plays the card, and a simulator plays the scheme and issuer. The tester runs scripted test cases on the real terminal. Two logs come out: the **card-terminal log** (what the card and terminal said to each other, including chip tags) and the **network log** (what the acquirer and scheme saw). The checker compares them. Typical findings: the amount in DE4 differs from the amount the card approved, the point-of-sale entry mode in DE22 does not match how the card was read, chip data is missing, or a terminal that lost the answer never sent a reversal.
+
+Which test cases apply depends on the terminal type, its capabilities (chip, contactless, PIN types, cashback, refunds), the merchant category, and the country. A mobile POS has different cases from an ATM.
+
+## Setting up the test
+
+The acquirer issues a test merchant ID and terminal ID, a profile that describes the terminal's capabilities, and a connection (an address and port, often with a VPN or TLS). If the terminal does online PIN or message authentication, the two sides exchange keys in a **key ceremony**: each custodian gets one *component* and a *check value*, enters it separately, and the system combines them inside a hardware security module. The check value catches typing mistakes. Test and production use separate ceremonies, so a test key never protects live traffic.
+
+## When to certify again
+
+Typically when you launch a deployment for a scheme for the first time, make a major upgrade that changes the payment flow or adds a function such as cashback or refunds, change how the terminal's messages map to the acquirer host, put a new system between the terminal and acquirer, or move to new hardware. Cosmetic changes outside the payment flow do not need it.
+
+## Timing
+
+Implementation and testing happen once and depend on the merchant. Level 3 takes roughly two weeks per test iteration plus one to two weeks of review, for each scheme and each terminal model. Running a pre-certification first, with the same test cases, helps pass in one iteration.
+
+## Practise it
+
+The [POS acquiring and certification lab](/labs/acquiring) lets you scope a project, run a key ceremony, set the terminal profile, find mismatches between the logs, and answer recertification scenarios. Everything is simulated with made-up keys and simplified rules. The [course](/academy/pos-acquiring) adds a quiz and a certificate of completion.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

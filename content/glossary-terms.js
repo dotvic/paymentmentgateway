@@ -93,4 +93,12 @@ module.exports = [
   ["RAG (retrieval-augmented generation)", "Giving a language model relevant, approved documents or data to answer from, instead of relying on what it remembers. It makes answers more accurate and traceable."],
   ["Controlled autonomy", "Letting an AI act on its own only inside limits that are enforced, logged and reviewable, with a person able to step in or revoke it."],
   ["Precision and recall", "For a fraud model: precision is how many flagged payments really were fraud; recall is how much of the fraud it caught. Raising one usually lowers the other."],
+  ["Level 3 certification", "Testing that one terminal deployment works correctly with one acquirer for one card scheme, by comparing the card-terminal log with the network log. Repeated for each scheme and terminal model."],
+  ["Acquirer host certification", "Testing the interface between an acquirer and a card scheme: that the acquirer builds and reads the scheme's messages correctly, usually needed for a new transaction type or scheme."],
+  ["Letter of approval", "The document a certifying body or card scheme issues when a terminal or deployment passes. It covers one specific configuration."],
+  ["Payment kernel", "The terminal software that runs the card conversation (the Level 2 part). Contactless has one kernel per card scheme."],
+  ["Key ceremony", "A controlled process where custodians each enter one key component, so no single person knows the whole key. Test and production use separate ceremonies."],
+  ["Check value (KCV)", "A short value computed from a key or key component that lets you confirm it was entered correctly without revealing it."],
+  ["Data element", "A numbered field in an ISO 8583 style message, such as DE4 for the amount or DE22 for how the card was read."],
+  ["Terminal ID and merchant ID", "Identifiers the acquirer issues for a terminal (TID) and the merchant that owns it (MID). They travel in every message."],
 ];
