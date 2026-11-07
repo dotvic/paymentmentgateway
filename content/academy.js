@@ -138,7 +138,7 @@ module.exports = [
     tasks: [
       T("run", "Run the risk engine lab on the practice set.", "Open /labs/risk and press Run.", (a) => !!(a.risk && a.risk.runs > 0)),
       T("rule", "Add a rule and run again.", "Try 'minutes_since_last <= 90 then review'.", (a) => !!(a.risk && a.risk.rule_used)),
-      T("tune", "Tune the lab to a total cost of 250 or less with at most 5% good customers declined.", "Move the lines; look at the total cost.", (a) => !!(a.risk && a.risk.goal)),
+      T("tune", "Tune the lab to a total cost of 200 or less with at most 5% good customers declined.", "Move the lines; look at the total cost.", (a) => !!(a.risk && a.risk.goal)),
       T("kpis", "Make an approved and a declined payment so your KPI page has data.", "See /labs/kpis afterwards.", (a) => has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "success") && has(a, (p) => p.transaction_type === "purchase" && p.transaction_state === "failed")),
     ] },
   { id: "api-security", title: "API security and idempotency", level: "Intermediate", minutes: 45, summary: "Safe retries with idempotency keys, controls and audit logs, and the basics of securing a payments API.",
@@ -209,6 +209,27 @@ module.exports = [
       T("injection", "See a prompt-injection style request blocked by the limits.", "Press the 'ignore your limits' button.", (a) => !!(a.agt && a.agt.blocked_codes && a.agt.blocked_codes.OVER_ITEM_LIMIT > 0)),
       T("confirm", "Approve a purchase as the account holder and see it complete.", "Use 'Buy a 250 flight', then Approve.", (a) => !!(a.agt && a.agt.confirmed > 0)),
       T("revoke", "Revoke the mandate and see the agent blocked.", "Press Revoke, then try a purchase.", (a) => !!(a.agt && a.agt.revoked_blocked > 0)),
+    ] },
+  { id: "ecommerce-risk-ops", title: "E-commerce risk operations", level: "Intermediate", minutes: 45, summary: "Online fraud schemes, address and security-code checks, your own lists, a sensible order of checks, and defending chargebacks with evidence.",
+    lessons: [
+      { title: "Why online is different", md: "An approval is not proof the real cardholder is buying. In card-not-present sales the merchant often bears the loss for fraud the issuer approved, and issuers can raise a fraud dispute for months after the sale. So you need your own checks. The schemes to know: **clean fraud**, **account takeover**, **friendly fraud**, identity theft, affiliate fraud, **re-shipping**, botnets, phishing, and **triangulation**." },
+      { title: "Address and security-code checks", md: "**Address verification** returns a result code separate from the approval: exact, partial (street or postal code only), none, or unavailable. Partial and none mean *look closer before shipping*, not *decline*; unavailable means unknown. An issuer decline always wins over any address result. A **security code** mismatch is one signal, and may be a typo, so allow one retry. Never store the code after authorisation." },
+      { title: "Your own lists and velocity", md: "A **negative file** holds details from confirmed fraud only, never every disputed order, and you must be able to remove an innocent victim. A **positive file** lowers friction for proven customers. **Velocity** limits count orders, cards and amounts per card, address, device, email and network address, tighter for new customers. Many different cards from one network address in an hour is a classic sign of card testing." },
+      { title: "Order of checks and cost", md: "Authenticate first, screen with your own rules, authorise with address and code checks, and only then pay for an outside score, and only on payments still undecided: scoring tiny low-risk orders costs more than it saves. Send suspicious orders to review and contact the cardholder using a number you looked up yourself." },
+      { title: "Defending chargebacks", md: "Answer every copy request fully and quickly. **Compelling evidence** includes delivery to the address that matched the check, proof that digital goods were accessed, and earlier undisputed orders using the same network address, email or phone. Track chargebacks by reason, gross and net after **representment**. For recurring billing keep consent, warn before out-of-range charges and make cancelling easy." },
+    ],
+    quiz: [
+      Q("The address check returns a partial match and the issuer approved. What is a sensible step?", ["Decline automatically", "Look closer before shipping, together with other signals", "Ignore it", "Block the customer for life"], 1, "A partial match is a signal. The customer may have moved or typed the address differently."),
+      Q("The issuer declined but the address matched exactly. What do you do?", ["Accept the order anyway", "Treat the decline as final and ask for another payment method", "Retry five times", "Call the cardholder to ask for the code"], 1, "An issuer decline always takes precedence over the address result."),
+      Q("Which fraud passes address, security code and location checks?", ["Card testing", "Clean fraud", "A typo", "A duplicate order"], 1, "Clean fraud looks fully legitimate, which is why you layer checks and keep monitoring."),
+      Q("What belongs in your negative file?", ["Every customer who ever disputed", "Details from confirmed fraud only", "All new customers", "All foreign customers"], 1, "Disputes can be mistakes or friendly fraud, and the list needs a way to remove innocent victims."),
+      Q("Why buy an outside fraud score only for payments still undecided?", ["It is forbidden otherwise", "Scoring clearly good or clearly bad orders costs more than it saves", "Scores are always wrong", "Issuers require it"], 1, "Order the checks so costly ones run on fewer payments."),
+      Q("Which evidence best helps against a not-received fraud claim?", ["A polite email", "Delivery proof to the same address that matched the address check", "Your refund policy", "A screenshot of the home page"], 1, "Compelling evidence ties delivery to the matched address."),
+    ],
+    tasks: [
+      T("signal", "Add a risk rule that uses a new signal.", "In /labs/risk add a rule such as 'cards_per_ip_1h >= 3 then decline' and run.", (a) => !!(a.risk && a.risk.signal_rule)),
+      T("goal", "Tune the risk lab to a total cost of 200 or less with at most 5% good customers declined.", "Combine thresholds with a rule on address or network signals.", (a) => !!(a.risk && a.risk.goal)),
+      T("dispute", "Open a dispute on one of your test payments.", "Use the disputes lab, then answer with evidence.", (a) => has(a, (p) => !!p.dispute_id)),
     ] },
   { id: "pos-acquiring", title: "POS acquiring and certification", level: "Advanced", minutes: 50, summary: "How terminals get approved with an acquirer: host certification, Level 1, 2 and 3, test accounts, keys, log checks and when to certify again.",
     lessons: [

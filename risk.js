@@ -1,14 +1,14 @@
 "use strict";
 // Risk engine lab: an explainable score from transaction signals, a rules layer, and a fixed practice dataset with hidden fraud labels.
 // Everything here is a teaching model with made-up weights. It is not a real fraud model.
-const FIELDS = { amount: "n", ratio: "n", velocity_1h: "n", account_age_days: "n", hour: "n", minutes_since_last: "n", device_known: "b", country_matches_home: "b", merchant_known: "b", authenticated: "b", travel_flag: "b" };
+const FIELDS = { amount: "n", ratio: "n", velocity_1h: "n", account_age_days: "n", hour: "n", minutes_since_last: "n", device_known: "b", country_matches_home: "b", merchant_known: "b", authenticated: "b", travel_flag: "b", avs_mismatch: "b", cvv_mismatch: "b", ship_bill_mismatch: "b", ip_country_mismatch: "b", negative_file_hit: "b", cards_per_ip_1h: "n" };
 const OPS = { ">": (a, b) => a > b, ">=": (a, b) => a >= b, "<": (a, b) => a < b, "<=": (a, b) => a <= b, "==": (a, b) => a === b };
 const DECISIONS = ["approve", "review", "decline"];
 
 function derive(s) {
   const ratio = s.typical_amount > 0 ? s.amount / s.typical_amount : 1;
   const travel = !s.country_matches_home && s.minutes_since_last != null && s.minutes_since_last <= 90 && s.last_country_matches_home === true;
-  return { ...s, ratio: Math.round(ratio * 10) / 10, travel_flag: !!travel };
+  return { avs_mismatch: false, cvv_mismatch: false, ship_bill_mismatch: false, ip_country_mismatch: false, negative_file_hit: false, cards_per_ip_1h: 0, ...s, ratio: Math.round(ratio * 10) / 10, travel_flag: !!travel };
 }
 function score(sig) {
   const s = derive(sig), f = [];
@@ -22,6 +22,12 @@ function score(sig) {
   add(s.merchant_known ? 0 : 6, "First time at this merchant");
   add(s.hour >= 0 && s.hour < 5 ? 6 : 0, "Late-night payment");
   add(s.authenticated ? -15 : 0, "Customer passed strong authentication");
+  add(s.avs_mismatch ? 14 : 0, "Billing address check did not match");
+  add(s.cvv_mismatch ? 14 : 0, "Security code check did not match");
+  add(s.ship_bill_mismatch ? 8 : 0, "Shipping address differs from billing address");
+  add(s.ip_country_mismatch ? 10 : 0, "Network location country differs from billing country");
+  add(s.cards_per_ip_1h >= 3 ? 20 : s.cards_per_ip_1h >= 2 ? 8 : 0, `${s.cards_per_ip_1h} different cards from one network address in the last hour`);
+  add(s.negative_file_hit ? 40 : 0, "Matches your own list of confirmed fraud (negative file)");
   const raw = f.reduce((a, x) => a + x.points, 0);
   return { score: Math.max(0, Math.min(100, raw)), factors: f, derived: { ratio: s.ratio, travel_flag: s.travel_flag } };
 }
@@ -63,7 +69,18 @@ const DATASET = (() => {
   for (let i = 0; i < 2; i++) { const t = between(40, 80); mk("sneaky-fraud", true, { typical_amount: t, amount: Math.round(t * 1.5), device_known: true, country_matches_home: true, merchant_known: true, velocity_1h: 1, account_age_days: between(300, 900), hour: between(10, 20), minutes_since_last: between(500, 3000), last_country_matches_home: true, authenticated: false }); }
   // deterministic shuffle
   for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
-  return out.map((o, i) => ({ id: "t" + String(i + 1).padStart(2, "0"), ...o }));
+  // Address, security-code and network signals are added by pattern, without touching the random stream above.
+  const seen = {};
+  return out.map((o, i) => {
+    const n = (seen[o.kind] = (seen[o.kind] || 0) + 1), x = {};
+    if (o.kind === "stolen-card") { x.avs_mismatch = true; x.cvv_mismatch = n % 2 === 1; x.ship_bill_mismatch = true; }
+    if (o.kind === "card-testing") { x.cvv_mismatch = true; x.cards_per_ip_1h = 5; }
+    if (o.kind === "account-takeover") { x.ip_country_mismatch = true; x.ship_bill_mismatch = true; }
+    if (o.kind === "sneaky-fraud") x.ship_bill_mismatch = n % 2 === 1; // mostly clean fraud: it passes the usual checks
+    if (o.kind === "holiday") x.avs_mismatch = n % 2 === 0; // foreign address formats: a false-alarm trap
+    if (o.kind === "big-purchase") x.ship_bill_mismatch = n % 3 === 0; // gifts shipped elsewhere
+    return { id: "t" + String(i + 1).padStart(2, "0"), ...o, ...x };
+  });
 })();
 const publicTx = (t) => { const { fraud, kind, ...rest } = t; return rest; };
 

@@ -13,14 +13,14 @@ const CATEGORIES = {
   fraud: {
     label: "Fraud",
     claim: "The cardholder says they did not make or authorise this payment.",
-    accepted: ["customer_ip", "customer_email", "device_fingerprint", "billing_address_match", "authentication_proof", "customer_history", "uncategorized_text"],
+    accepted: ["customer_ip", "customer_email", "device_fingerprint", "billing_address_match", "authentication_proof", "customer_history", "prior_undisputed_transaction", "delivery_address_match", "digital_access_logs", "uncategorized_text"],
     required: ["customer_ip", "customer_email"],
     tip: "Show that the real customer made the payment: IP address, email, device, earlier orders. A 3-D Secure authentication that shifted liability to the issuer wins fraud disputes without evidence.",
   },
   not_received: {
     label: "Goods or services not received",
     claim: "The cardholder says the goods or services never arrived.",
-    accepted: ["tracking_number", "shipping_carrier", "delivery_date", "proof_of_delivery", "customer_communication", "uncategorized_text"],
+    accepted: ["tracking_number", "shipping_carrier", "delivery_date", "proof_of_delivery", "delivery_address_match", "digital_access_logs", "customer_communication", "uncategorized_text"],
     required: ["tracking_number", "proof_of_delivery"],
     tip: "Prove delivery: a carrier tracking number and a signed or photographed proof of delivery.",
   },

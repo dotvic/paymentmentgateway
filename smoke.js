@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 11);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 12);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1104,12 +1104,14 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // risk lab and KPIs
       assert.equal((await raw("GET", "/v1/risk/dataset")).body.transactions.length, 58); assert.ok(!JSON.stringify((await raw("GET", "/v1/risk/dataset")).body).includes("fraud"), "labels hidden");
       assert.equal((await raw("POST", "/v1/risk/evaluate", {})).status, 401);
-      const ev0 = await A("POST", "/v1/risk/evaluate", {}); assert.equal(ev0.status, 200); assert.equal(ev0.body.totals.transactions, 58); assert.equal(ev0.body.metrics.total_cost, 319.1);
+      const ev0 = await A("POST", "/v1/risk/evaluate", {}); assert.equal(ev0.status, 200); assert.equal(ev0.body.totals.transactions, 58); assert.equal(ev0.body.metrics.total_cost, 235.2);
       assert.equal((await A("POST", "/v1/risk/evaluate", { thresholds: { approve_max: 50, decline_min: 40 } })).status, 400); assert.equal((await A("POST", "/v1/risk/evaluate", { rules: [{ field: "nope", op: ">", value: 1, then: "decline" }] })).status, 400);
-      const evr = await A("POST", "/v1/risk/evaluate", { thresholds: { approve_max: 16, decline_min: 40 }, rules: [{ field: "velocity_1h", op: ">=", value: 6, then: "decline" }] }); assert.equal(evr.status, 200); assert.ok(evr.body.metrics.total_cost <= 250 && evr.body.metrics.false_positive_rate <= 0.05);
+      const evr = await A("POST", "/v1/risk/evaluate", { thresholds: { approve_max: 40, decline_min: 50 }, rules: [{ field: "cards_per_ip_1h", op: ">=", value: 3, then: "decline" }] }); assert.equal(evr.status, 200); assert.ok(evr.body.metrics.total_cost <= 200 && evr.body.metrics.false_positive_rate <= 0.05);
       const rsc = await A("POST", "/v1/risk/score", { signals: { amount: 900, typical_amount: 50, device_known: false, country_matches_home: false } }); assert.equal(rsc.body.score, 60); assert.equal(rsc.body.decision, "review"); assert.ok(rsc.body.factors.length >= 3);
       const kp = (await A("GET", "/v1/kpis")).body; assert.ok(kp.attempts >= 3 && kp.approval_rate_percent > 0 && kp.decline_rate_percent > 0);
       const rt = await A("POST", "/v1/academy/courses/fraud-and-risk/tasks/check"); assert.equal(rt.body.tasks_done, 4, "risk course tasks verify from lab activity");
+      const evs = await A("POST", "/v1/risk/evaluate", { thresholds: { approve_max: 40, decline_min: 50 }, rules: [{ field: "cards_per_ip_1h", op: ">=", value: 3, then: "decline" }] }); assert.equal(evs.status, 200);
+      const rt2 = await A("POST", "/v1/academy/courses/ecommerce-risk-ops/tasks/check"); assert.ok(rt2.body.tasks_done >= 2, "e-commerce risk course tasks verify from lab activity");
       // card controls and idempotency
       assert.equal((await raw("POST", "/v1/cards", {})).status, 401);
       const acct2 = (await raw("POST", "/v1/accounts")).body.api_key, A2 = (m, p, bd) => raw(m, p, bd, acct2);

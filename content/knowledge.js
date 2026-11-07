@@ -295,6 +295,90 @@ Implementation and testing happen once and depend on the merchant. Level 3 takes
 
 The [POS acquiring and certification lab](/labs/acquiring) lets you scope a project, run a key ceremony, set the terminal profile, find mismatches between the logs, and answer recertification scenarios. Everything is simulated with made-up keys and simplified rules. The [course](/academy/pos-acquiring) adds a quiz and a certificate of completion.` });
 
+pages.push({ slug: "ecommerce-fraud-schemes", title: "E-commerce fraud schemes and the checks that catch them", category: "Concepts", summary: "Nine common online fraud schemes, the checks that help (address, security code, 3-D Secure, your own lists) and why one check is never enough.", markdown: `When the card is not in the shop, an approval only tells you the account had funds and was not reported stolen. It does not prove the real cardholder is buying. In card-not-present sales the merchant usually carries the loss for fraud the issuer approved, which is why checks at your end matter.
+
+## Nine schemes worth knowing
+
+- **Clean fraud.** Everything checks out: valid details, matching address, correct code, a plausible location. The most dangerous kind, because your usual rules pass it.
+- **Account takeover.** A criminal gets into a real customer's account, changes the email or address and buys. Watch changes to contact details followed quickly by orders.
+- **Friendly fraud.** The cardholder (or a relative) disputes a purchase that was in fact delivered. Defence is evidence, not a stricter checkout.
+- **Identity theft.** Someone uses stolen personal data to open accounts and buy.
+- **Affiliate fraud.** Fake leads or inflated traffic to collect referral payouts.
+- **Re-shipping.** A recruited person receives goods bought with stolen cards and forwards them. The delivery address looks innocent.
+- **Botnets.** Infected machines make the order look as if it comes from near the cardholder, so a simple location match is fooled.
+- **Phishing, pharming and whaling.** Fake messages or redirected sites steal credentials; whaling targets specific staff with tailored messages.
+- **Triangulation.** The fraudster sells cheap goods to a real buyer, then orders from a genuine shop with a stolen card. Both sides look innocent, and the fraudster collects the buyer's card details too.
+
+## The checks, and what each one really tells you
+
+- **Address verification (AVS).** The issuer compares the billing address you send with its records and returns a result code **separate** from the approve or decline. Exact match: proceed. Partial match (street or postal code only): look closer, since the customer may have moved or typed it in another format. No match: investigate before shipping. Unavailable: treat it as unknown, not as bad. **An issuer decline always wins**: never accept a declined payment because the address matched. It only works for cards from some countries.
+- **Security code (CVV).** Proves someone has the card details in front of them. A no-match is a signal to weigh with others (it can be a typo, so allow one re-entry), not an automatic decline. Never store it after authorisation.
+- **3-D Secure.** Authenticates the cardholder. A fully authenticated payment shifts fraud liability to the issuer. An attempted authentication gives less protection, and a failed one should not be sent for authorisation. It does not stop account takeover or friendly fraud, so keep screening.
+- **Your own lists.** A **negative file** of details from confirmed fraud (emails, addresses, devices) and a **positive file** of trusted repeat customers. Put only confirmed fraud in the negative file, not every disputed order, and have a way to remove an innocent victim whose details were misused.
+- **Velocity.** Limits on how many orders, cards and amounts one card, address, phone, email, device or network address can produce in a period. Tighter for new customers, looser for proven ones.
+- **Input hygiene.** Run the card-number check (Luhn) before asking the issuer, to catch typos. Do not pre-fill the expiry date. Show returning customers only the last four digits.
+
+## Signals that deserve a second look
+
+Larger-than-usual orders; many of the same item; rush shipping; shipping outside your country; billing and shipping that differ (especially on high-value goods); several different cards from one network address; one card with several shipping addresses; a very short time between attempts on one card; free-mail addresses with no history; network country that differs from billing country. None is proof. Each adds weight, which is exactly what a risk score does. Try it in the [risk lab](/labs/risk).
+
+## Order of checks
+
+1. Authenticate (3-D Secure) where it applies.
+2. Your own screening: negative file, velocity, high-risk locations. Stop or send to review here.
+3. Authorise with address and security code, and read the results.
+4. Only then pay for an outside fraud score, and only on payments still undecided. Scoring every tiny, low-risk order costs more than the fraud it prevents.
+5. Review the suspicious ones by contacting the cardholder with a number you looked up yourself, never the one on the order.
+
+## Measure it
+
+Track gross fraud as a share of sales, recoveries as a share of gross fraud, how fast you review flagged orders, and complaints from good customers. The aim is less fraud with the least harm to good sales. Related: [Risk scoring and fraud controls](/knowledge/risk-and-fraud), [Chargeback defence and evidence](/knowledge/chargeback-defence-and-evidence).` });
+pages.push({ slug: "chargeback-defence-and-evidence", title: "Chargeback defence and evidence", category: "Concepts", summary: "How to avoid chargebacks, answer copy requests, assemble compelling evidence, and monitor rates, plus authorisation, delivery and recurring-billing rules that cause them.", markdown: `A chargeback takes back the sale amount and adds your own handling cost. Most are avoidable, and many that are not can be won with the right evidence. The full liability for a chargeback sits in your merchant agreement, so read it.
+
+## Why they happen
+
+Customer disputes, fraud, processing errors and authorisation problems. Many come from avoidable mistakes: charging before shipping, double billing, an unrecognisable name on the statement, an unclear refund policy, slow replies.
+
+## Prevent
+
+- **Say it clearly at checkout.** Product description, total price including shipping and tax, the currency, delivery time, refund policy, and who will appear on the statement. If you use a billing provider, tell customers the name they will see.
+- **Currency conversion.** If you offer paying in the customer's currency, they must actively choose it after seeing the rate and fee. Never make it the default.
+- **Confirm orders** by email within a business day and warn about delays. Keep stock information honest.
+- **Make contact easy.** A visible email and phone number, and response targets you monitor. Most customers who can reach you ask for a refund instead of a dispute.
+- **Refund quickly** when a customer is right. A prompt credit is cheaper than a dispute.
+- **Test your fulfilment** with your own orders: time from order to billing, and from return to credit. Delays create disputes.
+- **Prevent duplicates**: require a positive click, show an "order being processed" message, and flag identical orders placed close together.
+- **Do not repeat a hard decline.** Ask for another payment method. Hard declines such as lost or stolen must never be retried; soft ones may be retried a limited number of times if worthwhile.
+
+## Authorisations and shipping
+
+The shipping date counts as the transaction date for goods. An approval is valid for a limited time, so if you ship well after approval (a backorder, say), get a new one first. For delayed delivery, authorise the deposit and the balance separately. For split shipments, make sure the later authorisations still carry the authentication result, or the fraud protection can be lost. Deposit sales only for your own business.
+
+## Recurring billing
+
+Get and keep the cardholder's consent: the amount (or its range), how often, and for how long. Warn customers ahead of any charge outside the agreed range. Offer easy cancellation, check cancellation and complaint logs daily, and refund promptly when a cancellation arrives too late. Mark recurring payments as such so issuers see them correctly. For digital services, do not bill free-trial users who never used the service, and avoid renewal tricks that make "free" look free. Keep stored card details fresh with an account-updater service, and never store the security code.
+
+## Respond to copy requests
+
+When an issuer asks for proof of a sale, answer fully and quickly. An unanswered or illegible request almost always becomes a chargeback. Include: card number (as allowed), expiry, cardholder name, date, amount, authorisation code, your name and web address, a description of the goods, the shipping address and the address-check result. Helpful extras: time, email, phone, a detailed description, and whether a signature was obtained on delivery.
+
+## Compelling evidence
+
+For fraud and not-received disputes you can show that the cardholder took part or benefited:
+
+- Goods collected in person: signature, copy of the identification shown.
+- Goods delivered: proof of delivery and time to the **same physical address** that matched the address check. A signature is not always required.
+- Digital goods: the buyer's network address and email, a description of what was downloaded, the date and time, and proof the account was used after the transaction date.
+- Earlier undisputed orders that used the same network address, email, phone or physical address.
+- The cardholder later acknowledged the purchase, by phone or in writing.
+- You requested the address check or security-code check and the issuer returned "unavailable": the issuer's own gap can shift responsibility back.
+
+Practise assembling evidence in the dispute lab: pick evidence that fits the category and see how it changes the outcome.
+
+## Recover and monitor
+
+Contact customers who truly received goods and keep the chargeback, politely first by email, then phone, then a collections agency for larger amounts. Track chargebacks **by reason**, show gross and **net after representment**, and track card-present and card-absent separately, and web separately from phone and mail. Card schemes watch merchant dispute and fraud ratios monthly; too high and your acquirer will ask for a reduction plan, and in the worst case you can lose protections or be placed in a higher-risk programme. Related: [Payment lifecycle](/knowledge/payment-lifecycle), [E-commerce fraud schemes](/knowledge/ecommerce-fraud-schemes).` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

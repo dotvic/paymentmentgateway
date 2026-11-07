@@ -47,7 +47,7 @@ module.exports = function ({ html, ctx, UI, esc }) {
 <div id="out"></div>
 <h2>How the score is built</h2><p>Each signal adds or removes points: an amount far above the customer's usual, a new device, a foreign country, travel that cannot be real, many payments in an hour, a very new account, a first visit to the merchant, and late-night hours. Passing strong authentication takes points off. The weights are made up for teaching. Real models learn them from data.</p>
 <h2>Things to try</h2><ul><li>Lower the decline line until fraud drops. What happens to good customers?</li><li>Find the cheapest setting. The table shows the total cost.</li><li>Add a rule for impossible travel. Does it help or only move cases around?</li><li>Look at the fraud the score cannot see: payments from a known device, at a known merchant, for a normal amount.</li></ul>
-<p class="hint">A model that is right today drifts as customers and fraudsters change, so thresholds need recalibrating and monitoring. Related: <a href="/academy/fraud-and-risk">the Academy fraud and risk course</a>, <a href="/labs/kpis">payment KPIs</a>.</p>`;
+<p class="hint">A model that is right today drifts as customers and fraudsters change, so thresholds need recalibrating and monitoring. Related: <a href="/academy/fraud-and-risk">the Academy fraud and risk course</a>, <a href="/knowledge/ecommerce-fraud-schemes">e-commerce fraud schemes</a>, <a href="/academy/ecommerce-risk-ops">e-commerce risk operations</a>, <a href="/labs/kpis">payment KPIs</a>.</p>`;
     const script = `var FIELDS=${JSON.stringify(Object.keys(R.FIELDS))},BOOL=${JSON.stringify(Object.keys(R.FIELDS).filter((k) => R.FIELDS[k] === "b"))};
 function $(i){return document.getElementById(i);}
 $("a").oninput=function(){$("av").textContent=this.value;};$("d").oninput=function(){$("dv").textContent=this.value;};
@@ -93,8 +93,8 @@ o.innerHTML='<div class="grid"><div class="panel"><strong>Approval rate</strong>
       if (m === "POST" && path === "/v1/risk/evaluate") {
         const b = (await readBody(req)) || {}; let out; try { out = R.evaluate(b.thresholds, b.rules); } catch (e) { throw bad(400, "invalid_request", e.message); }
         const r = acc.risk = acc.risk || { runs: 0, rule_used: false, best_cost: null, goal: false };
-        r.runs++; if (out.rules.length) r.rule_used = true; r.best_cost = r.best_cost == null ? out.metrics.total_cost : Math.min(r.best_cost, out.metrics.total_cost);
-        if (out.metrics.total_cost <= 250 && out.metrics.false_positive_rate <= 0.05) r.goal = true;
+        r.runs++; if (out.rules.length) r.rule_used = true; if (out.rules.some((x) => ["avs_mismatch", "cvv_mismatch", "ship_bill_mismatch", "ip_country_mismatch", "negative_file_hit", "cards_per_ip_1h"].includes(x.field))) r.signal_rule = true; r.best_cost = r.best_cost == null ? out.metrics.total_cost : Math.min(r.best_cost, out.metrics.total_cost);
+        if (out.metrics.total_cost <= 200 && out.metrics.false_positive_rate <= 0.05) r.goal = true;
         save(acc); send(res, 200, out); return true;
       }
       return false;
