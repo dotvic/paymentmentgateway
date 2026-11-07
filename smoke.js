@@ -1077,13 +1077,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 12);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 13);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1216,6 +1216,38 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       const GOOD = { currency: "985", mac_enabled: true, reversal_on_timeout: true, floor_limit: 0 };
       assert.equal((await raw("GET", "/v1/acquiring")).status, 401);
       // phase 1: scope, account, keys, validation
+      { // terminal messaging lab
+        const AT = await fresh();
+        const mi = await raw("GET", "/v1/terminal/mti?mti=0210"); assert.equal(mi.status, 200); assert.equal(mi.body.digits[2].meaning, "Request response"); assert.equal((await raw("GET", "/v1/terminal/mti?mti=12")).status, 400);
+        const M = (b) => AT("POST", "/v1/terminal/message", b);
+        const sale = (stan, amount, extra) => M({ mti: "0200", processing_code: "000000", amount, stan, terminal_id: "TERM0001", merchant_id: "MERCH0000000001", ...extra });
+        const s1 = await sale("100001", 1250); assert.equal(s1.status, 200); assert.equal(s1.body.mti, "0210"); assert.equal(s1.body.response_code, "00");
+        assert.equal((await sale("100001", 1250)).body.response_code, "94", "duplicate trace number");
+        assert.equal((await sale("100002", 1251)).body.response_code, "51");
+        const lost = await sale("100003", 2000, { simulate_timeout: true }); assert.equal(lost.status, 504);
+        assert.equal((await sale("100004", 500)).status, 409, "reversal must come first");
+        assert.equal((await M({ mti: "0400", processing_code: "000000", stan: "100003", amount: 1999 })).status, 422);
+        assert.equal((await M({ mti: "0400", processing_code: "000000", stan: "100003", amount: 2000 })).body.response_code, "00");
+        const v = await AT("GET", "/v1/terminal"); assert.equal(v.body.pending_reversal, null); assert.equal(v.body.batch.terminal_totals.sales_count, 1);
+        const orig = v.body.batch.transactions.find((x) => x.stan === "100001");
+        assert.equal((await M({ mti: "0200", processing_code: "020000", stan: "100001", original: { stan: "100001", amount: 1250, rrn: orig.rrn, time: "000000" } })).body.response_code, "25", "void needs the exact time");
+        const tip = await M({ mti: "0220", adjust_of: "100001", base_amount: 1250, tip: 150, amount: 1400, auth_code: "X" }); assert.equal(tip.body.response_code, "00");
+        assert.equal((await M({ mti: "0220", adjust_of: "100001", base_amount: 1400, tip: 100, amount: 1600 })).status, 422);
+        assert.equal((await AT("POST", "/v1/terminal/offline-sale", { amount: 9000 })).status, 400, "above floor limit");
+        const off = await AT("POST", "/v1/terminal/offline-sale", { amount: 1800 }); assert.equal(off.status, 200);
+        const tot = (await AT("GET", "/v1/terminal")).body.batch.terminal_totals; assert.equal(tot.sales_amount, 1400 + 1800);
+        const c1 = await M({ mti: "0500", processing_code: "920000", stan: "100010", totals: tot }); assert.equal(c1.body.response_code, "95");
+        assert.equal((await M({ mti: "0320", stan: off.body.stan, amount: 1800 })).body.response_code, "00");
+        const c2 = await M({ mti: "0500", processing_code: "960000", stan: "100011", totals: tot }); assert.equal(c2.body.response_code, "00");
+        const sale2 = await sale("100020", 1000); assert.equal(sale2.status, 200);
+        const v2 = (await AT("GET", "/v1/terminal")).body; const t2 = v2.batch.transactions[0];
+        assert.equal((await M({ mti: "0200", processing_code: "020000", stan: t2.stan, original: { stan: t2.stan, amount: 1000, rrn: t2.rrn, time: t2.time } })).body.response_code, "00");
+        assert.equal(v2.did.reversal && v2.did.adjust && v2.did.recovered, true);
+        const aa = await AT("POST", "/v1/terminal/action-analysis", { tvr: "0000008000", tac_denial: "0000000000", tac_online: "0000008000", tac_default: "0000008000", iac_denial: "0000000000", iac_online: "0000000000", iac_default: "0000000000", can_go_online: true, card_response: "TC" });
+        assert.equal(aa.body.terminal_asks, "ARQC"); assert.equal(aa.body.card_response_valid, false);
+        const ab = await AT("POST", "/v1/terminal/action-analysis", { tvr: "0000008000", tac_denial: "0000008000", tac_online: "0000000000", tac_default: "0000000000", iac_denial: "0000000000", iac_online: "0000000000", iac_default: "0000000000" }); assert.equal(ab.body.terminal_asks, "AAC");
+        assert.equal((await AT("POST", "/v1/terminal/action-analysis", { tvr: "zz" })).status, 400);
+      }
       { // issuer view of wallet provisioning
         const AI = await fresh();
         assert.equal((await raw("GET", "/v1/issuer/payment-view")).status, 200);

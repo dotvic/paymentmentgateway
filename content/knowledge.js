@@ -423,6 +423,190 @@ Issuers need a way to map real numbers to tokens (messages, a customer-service A
 
 Tap-and-go is fast, the phone is always in hand and the real number never leaves the secure store. Related: [Tokenization](/knowledge/tokenization), [Risk scoring and fraud controls](/knowledge/risk-and-fraud), [Tokenization course](/academy/tokenization).` });
 
+pages.push({ slug: "terminal-messages-and-batches", title: "Terminal messages, reversals and batches", category: "Concepts", summary: "How a terminal and its acquirer host talk: reading a message type, the data elements that matter, what to do when an answer is lost, voids, tips, offline sales and closing the day.", markdown: `A payment terminal and its acquirer host exchange short, strict messages. Most networks base them on the ISO 8583 standard, but every acquirer fixes its own layout, so the details below are the common ideas, not any one host's specification. Practise them in the [Terminal messaging lab](/labs/terminal).
+
+## Reading a message type
+
+The **message type** is four digits, and each digit has a job.
+
+1. **Version of the standard.** 0 is the oldest layout, 1 and 2 are later ones, 8 and 9 are for national and private use.
+2. **Class.** 1 authorisation, 2 financial (the money moves now), 3 file action, 4 reversal, 5 reconciliation (settlement totals), 8 network management (log on, echo test, key change).
+3. **Function.** 0 request, 1 response, 2 advice (this already happened, you can only accept it), 3 advice response.
+4. **Origin.** 0 acquirer side, 2 issuer side, with a repeat variant of each.
+
+So **0210** is a financial response, and **0400** is a reversal request. A **request** can be refused. An **advice** cannot: it tells the host what the terminal has already done.
+
+## The message body
+
+After the type comes a **bitmap**, a row of bits that says which **data elements** follow. A few appear almost everywhere.
+
+- **Processing code**: what kind of transaction (sale, refund, void, balance) and which account type.
+- **Amount**: whole minor units, so 12.50 is 1250.
+- **Trace number (STAN)**: six digits, assigned by the terminal, unique for that terminal. It names the transaction in every later message about it.
+- **Entry mode**: how the card was read (typed, stripe, chip, contactless) and whether a PIN could be taken. Issuers use it for risk and for liability.
+- **Condition code**: the situation, such as customer present, mail or telephone order, or recurring.
+- **Terminal and merchant identifiers**: which terminal, in which shop.
+- **Chip data**: one large element carrying the chip's tags, such as the cryptogram and the terminal's verification results.
+- **Reference number and approval code**: assigned by the host in the answer. The terminal must keep both.
+- **Response code**: 00 means approved. Others say why not: do not honour, insufficient funds, unable to locate, duplicate.
+- **Message authentication code**: proves the message was not altered on the way.
+
+## When the answer is lost
+
+The terminal sends a sale and the line drops. The host may have approved it, and the customer's money may be held, but the terminal never saw the answer. It cannot assume either outcome. It must send a **reversal** carrying the original's trace number and amount, and **repeat it until the host answers**. No other transaction and no batch close may go first. If the host never saw the sale, it simply says there is nothing to undo.
+
+A reversal is a technical undo of something that did not complete. It is **not a refund**. A refund is a separate, customer-visible transaction.
+
+## Void, refund and tip
+
+- A **void** cancels a sale that is still in the open batch. The host finds the original by matching several fields: amount, trace number, time and reference. All must repeat the original exactly. If the batch has closed, the sale has already gone to settlement and the merchant must **refund** instead.
+- A **refund** is a new transaction with its own processing code.
+- A **tip** is added after the first approval. The final amount is the base plus the tip, and good designs carry the base and the tip as separate values so the totals and the receipt can both be right. The screen must make clear that the customer is typing a tip, never a PIN.
+
+## Offline sales and the floor limit
+
+When a terminal cannot reach the host, it may approve small amounts on its own, up to a **floor limit** set by the acquirer for that kind of merchant. It stores the sale and later sends an **advice** with a marker showing it approved the sale locally. Above the floor limit the sale must go online. Two rules keep this safe: offline approval only below the limit, and every stored sale sent **before** the batch closes.
+
+## Closing the batch
+
+At the end of the day, usually automatically, the terminal sends a **batch close** with its totals: count and amount of sales, count and amount of refunds. The host compares them with what it holds.
+
+1. The terminal first settles anything outstanding: any reversal, then any offline advices.
+2. It sends the totals. If they match, the batch is closed and a new one opens.
+3. If they do not, the host answers with a mismatch code. The terminal **uploads** its transactions one by one so the host can rebuild the totals, then closes again with a later-attempt code.
+
+An open batch should not sit for long. Many terminals prompt, or close on their own, after a week at most, because unsent sales are unsettled money.
+
+## Security of the link
+
+Messages travel over an encrypted channel and carry a message authentication code. PINs have their own protection and key scheme: see [EMV decision flow and PIN keys](/knowledge/emv-decision-flow-and-pin-keys). Card numbers are not written into logs. A terminal that logs them has a compliance problem.
+
+## Quick checks when a test fails
+
+- A void not found: compare amount, trace number, time and reference with the original answer, not with your memory.
+- A duplicate: you reused a trace number. Each new sale needs a new one.
+- A mismatch at close: look for an offline sale not yet sent, a tip you adjusted on the terminal but never sent, or a reversal that never finished.
+- Chip data disagreeing with the amount field: the cryptogram was signed over the amount, so the issuer cannot trust it.` });
+pages.push({ slug: "emv-decision-flow-and-pin-keys", title: "EMV decision flow and PIN keys", category: "Concepts", summary: "From card power-up to the issuer's answer: what the terminal and the chip each decide, how action codes work, and how PIN keys are managed with master/session keys and DUKPT.", markdown: `This guide follows a chip transaction step by step and then looks at how the PIN is protected on its way to the issuer. The [card-present course](/academy/card-present) covers the cryptogram itself. Try the decision in the [Terminal messaging lab](/labs/terminal).
+
+## The steps
+
+1. **Power up.** The terminal powers the chip and the chip answers.
+2. **Application selection.** The chip lists its applications, each named by an **application identifier**: a five-byte registered prefix for the scheme or domestic network, then an extension for the product. The terminal picks one it also supports. Domestic networks have their own identifiers, so a card may be accepted at home and not abroad.
+3. **Start processing.** The terminal sends a **Get Processing Options** command with the data the chip asked for in a **processing options data object list**. The chip answers with an **application interchange profile** (what it supports) and an **application file locator** (which records to read).
+4. **Read the records.** The terminal reads those records. The data inside is in **tag-length-value** form: a tag naming the item, its length, then its value.
+5. **Processing restrictions.** Version match, expiry date, not-yet-effective date, and whether this kind of use is allowed (domestic or international, goods or cash). A failure sets a bit but does not decline by itself.
+6. **Offline data authentication.** The terminal checks the card is genuine without calling anyone. **Static** authentication checks that data was signed, which stops edits but not copies. **Dynamic** and **combined** authentication make the chip sign fresh data, which also stops copies. Static is being retired.
+7. **Cardholder verification.** The chip holds a ranked **verification method list**: online PIN, offline PIN (plain or enciphered), signature, none, or a check done on the customer's own device. The terminal takes the first method it supports that applies.
+8. **Terminal risk management.** The terminal checks the floor limit, may randomly choose the transaction to go online, and checks how long since the card last went online.
+9. **Terminal action analysis.** The terminal decides: decline, go online or approve offline. See below.
+10. **First cryptogram request.** The terminal asks the chip for one of three answers: a **transaction certificate** (approve offline), an **authorisation request cryptogram** (go online), or an **application authentication cryptogram** (decline).
+11. **Online.** If asked to go online, the terminal sends the request with the cryptogram. The issuer checks it and answers with a response code, and usually its own response cryptogram.
+12. **Second cryptogram request.** The terminal tells the chip the outcome. The chip can still decline, for example when the issuer's response cryptogram fails to verify.
+13. **Issuer scripts.** The issuer may send commands to update the card, such as changing limits or blocking it.
+
+Contactless and quick-chip flows shorten this: the card may leave before the issuer's answer, so the response cryptogram and scripts are skipped.
+
+## Action codes in detail
+
+The terminal keeps a record of what it saw: the **terminal verification results**, five bytes of flags such as expired, floor limit exceeded or PIN not entered. It compares those flags with two sets of **action codes**: one stored in the terminal, set with the acquirer and scheme's advice, and one stored in the chip, set by the issuer. Each set has three codes:
+
+- **Denial**: if a matching flag is set, decline.
+- **Online**: if a matching flag is set, go online.
+- **Default**: used when the terminal cannot go online.
+
+The terminal combines the terminal's and the issuer's code with OR, then checks which TVR bits match. The order is fixed: denial first, then online (when it can), otherwise approve offline. A terminal that cannot go online uses the default code instead of the online code.
+
+## The card has the last word, but only downward
+
+The chip may answer differently from what the terminal asked. The ranking is approve offline, then go online, then decline. The chip can **move toward decline** (asked for offline approval, it answers go online or decline) but **never toward approval** (asked to go online, it cannot answer approve offline). That one rule is why a stolen terminal cannot talk a card into approving more than the card's own limits allow.
+
+## PIN keys
+
+An online PIN is typed on an encrypted PIN pad and leaves the pad as an **encrypted PIN block**: the PIN mixed with the card number, then encrypted, so the same PIN looks different on each card. The question is which key encrypts it.
+
+### Master and session keys
+
+- A **terminal master key** is loaded once, in a key ceremony, and shared with the acquirer's host.
+- For each transaction (or periodically) the host sends a **new session key**, encrypted under the master key.
+- The terminal encrypts the PIN block under the session key. The host decrypts the session key with the master key, then the PIN block.
+- Weakness: a leaked master key exposes everything under it, and the host must keep a key per terminal.
+
+### DUKPT: a new key for every transaction
+
+**Derived unique key per transaction** puts a **base derivation key** at the acquirer, never in a terminal. Each terminal is loaded with an initial key derived from it and a **key serial number**. For every transaction the terminal derives a fresh key from its stored keys and a counter inside the serial number, uses it once, and erases it.
+
+- The terminal sends the encrypted PIN block and the key serial number.
+- The host re-derives the same key from the base key and the serial number, and decrypts.
+- A stolen terminal reveals no earlier keys, and one leaked transaction key tells you nothing about the next.
+
+Older schemes use triple DES. Newer ones use AES. Either way the PIN block is decrypted only inside a **hardware security module**, a tamper-resistant device, and never in ordinary software.
+
+## Offline PIN
+
+With offline PIN, the terminal sends the PIN to the chip itself, which compares it with its stored value. The PIN never goes to the host, so no PIN block travels in the message. The terminal may encipher it with the card's own public key. Offline methods suit places with poor connections but leave less trail for the issuer.
+
+## Common mistakes
+
+- Treating a bit in the verification results as a decline. It is only a flag until the action codes are applied.
+- Assuming the online code applies when the terminal cannot reach the network.
+- Logging a PIN block, or any unencrypted PIN, for debugging.
+- Using one test key everywhere and then reusing it in production.` });
+pages.push({ slug: "settlement-routing-and-the-acquirer", title: "Settlement, routing and what an acquirer does", category: "Concepts", summary: "On-us and off-us transactions, dual and single message processing, how netting and funding work, and what an acquirer does from onboarding to account closure.", markdown: `The [payment lifecycle](/knowledge/payment-lifecycle) page shows the four parties. This guide goes one level deeper on routing, settlement and the acquirer's side.
+
+## On-us and off-us
+
+When the **same bank** is both acquirer and issuer, the payment is **on-us**. It never needs to cross a card network: the bank checks the account, approves and settles internally. The merchant is usually unaware and is charged as usual. The bank keeps both sides of the fee and pays little or nothing to the network, which is why banks like on-us volume.
+
+When the acquirer and issuer differ, the payment is **off-us**. It is routed over a network to find the issuer. Network fees apply, and the acquirer pays **interchange** to the issuer. Cross-border payments are always off-us.
+
+## Dual message and single message
+
+- **Dual message.** The authorisation is one message and the clearing is a second one, usually in a file later. In between, the amount is only held. This leaves room for tips, adjustments, partial shipments and fraud checks. It is the norm for credit and for travel, hotels and fuel.
+- **Single message.** One message carries both the approval and the money movement, so it is final at once. It suits cash withdrawals and many debit payments, where the amount is known and nothing changes afterwards.
+
+The split is not strict. Many networks run debit in dual message, and some credit schemes use single message domestically. Check which one your acquirer and the scheme use before designing a flow.
+
+## Settlement step by step
+
+1. **Authorisation.** The issuer approves. No money has moved.
+2. **Batching.** The acquirer collects approved transactions from its terminals, usually daily.
+3. **Submission.** The acquirer sends the batch to the network in a clearing file.
+4. **Netting.** The network adds up what each issuer owes and each acquirer is owed, and produces **one net position per member** instead of millions of small transfers.
+5. **Fund transfer.** Net amounts move between issuers and acquirers. Cardholders are billed by their issuers separately.
+6. **Merchant funding.** The acquirer credits the merchant, net of fees, on the agreed schedule. The whole journey takes from hours to a few days.
+
+Files used in this exchange are structured, standardised data files, which is why many members call them **electronic data interchange**.
+
+## Four-party contracts
+
+The cardholder has a contract with the issuer. The issuer and acquirer are each members of a network. The acquirer has a contract with the merchant. The merchant and the cardholder have a sales contract under consumer law. **There is no contract between issuer and acquirer** or between acquirer and cardholder. They are bound together by network rules, which is why a network rule can decide a dispute.
+
+## What an acquirer does
+
+1. **Recruit.** Understand the merchant's needs, agree pricing and terms.
+2. **Underwrite.** Assess credit and fraud risk before the first transaction. What is sold and how long until it is delivered (a ticket for next year is a long exposure), the merchant's finances, checks against fraud databases and against money-laundering and sanctions lists.
+3. **Deploy.** Provide terminals or a gateway, assign a merchant and a terminal identifier, and get each terminal approved (see [POS acquiring and certification](/knowledge/pos-acquiring-and-certification)).
+4. **Support.** Terminal faults, reconciliation questions, changes of bank account.
+5. **Handle disputes.** When an issuer charges a sale back, the acquirer checks the claim against network rules and either represents it with evidence or debits the merchant. See [Chargeback defence and evidence](/knowledge/chargeback-defence-and-evidence).
+6. **Monitor.** Networks measure acquirers on fraud and dispute rates and fine them when thresholds break, so the acquirer watches each merchant continuously and may hold funds or close accounts.
+7. **Close.** When a merchant stops trading, especially through insolvency, sales already settled can still be disputed for months. If the merchant cannot repay, **the acquirer absorbs the loss**. This is the credit exposure underwriting tries to price.
+
+## Why fees differ
+
+An acquirer that takes more risk charges more. High-dispute sectors, long delivery times and new businesses pay higher rates, and may be asked for a reserve that the acquirer holds back. Pricing is either blended (one rate for everything) or **interchange plus** (the pass-through cost plus a clear markup). The second is more transparent.
+
+## Other parties you will meet
+
+- **Payment service provider**: lets a merchant accept many methods through one contract, often taking on the merchant relationship itself.
+- **Independent sales organisation**: sells acquiring services on behalf of an acquirer but does not hold the merchant's funds.
+- **Gateway**: the secure link that passes the payment request to the acquirer.
+- **Payment initiation provider**: starts a bank transfer on the customer's consent, bypassing the card networks entirely.
+
+## Checking your understanding
+
+If a payment fails after a hotel stay, is it dual or single message? Which party absorbs a sale charged back after the merchant has gone bankrupt? Why can netting turn many billions of purchases into a handful of transfers? The [Terminal messaging course](/academy/terminal-messaging) asks these and more.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };
