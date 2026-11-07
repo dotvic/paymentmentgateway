@@ -1233,6 +1233,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: typo, check_value: ks.a.check_value })).body.error.code, "check_value_mismatch");
       assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: ks.b.value, check_value: ks.b.check_value })).body.error.code, "unknown_component");
       assert.equal((await A5("POST", "/v1/acquiring/keys/test/load", { part: "a", value: ks.a.value, check_value: ks.a.check_value })).body.state, "issued");
+      { const iv = (await A5("GET", "/v1/acquiring")).body.keys.test.components; assert.equal(iv.a.loaded, true); assert.ok(!JSON.stringify(iv.a).includes(ks.a.value), "loaded component is hidden"); assert.equal(iv.b.value, ks.b.value, "pending component stays visible"); }
       const done = await A5("POST", "/v1/acquiring/keys/test/load", { part: "b", value: ks.b.value, check_value: ks.b.check_value }); assert.equal(done.body.state, "active"); assert.match(done.body.check_value, /^[0-9A-F]{6}$/);
       const v = (await A5("GET", "/v1/acquiring")).body; assert.equal(v.keys.test.state, "active"); assert.ok(!JSON.stringify(v).includes(ks.a.value), "components are not kept");
       assert.equal((await A5("PUT", "/v1/acquiring/config", { floor_limit: -1 })).status, 400); assert.equal((await A5("PUT", "/v1/acquiring/config", { mac_enabled: "yes" })).status, 400);
