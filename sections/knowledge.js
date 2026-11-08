@@ -17,7 +17,7 @@ module.exports = function ({ html, notFound, ctx, UI, MD, esc }) {
     const r = MD.render(p.markdown, { shift: 0 }), toc = r.toc.filter((t) => t.level === 2);
     const pos = K.pages.findIndex((x) => x.slug === p.slug), next = K.pages[pos + 1], prev = K.pages[pos - 1];
     const body = `<div class="crumbs"><a href="/knowledge">Knowledge Centre</a> / ${esc(p.category)}</div><h1>${esc(p.title)}</h1><p class="lede">${esc(p.summary)}</p>
-${toc.length > 2 && p.slug !== "glossary" ? `<nav class="panel" aria-label="On this page"><strong>On this page</strong><ul style="margin:6px 0 0;padding-left:18px">${toc.map((t) => `<li><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join("")}</ul></nav>` : ""}
+${toc.length > 2 && p.slug !== "glossary" ? `<nav class="panel" style="display:block;max-width:760px" aria-label="On this page"><strong>On this page</strong><ul style="margin:6px 0 0;padding-left:18px">${toc.map((t) => `<li><a href="#${esc(t.id)}">${esc(t.text)}</a></li>`).join("")}</ul></nav>` : ""}
 <article class="prose">${r.html}</article>
 <div class="row sp panel">${prev ? `<a href="/knowledge/${esc(prev.slug)}">&larr; ${esc(prev.title)}</a>` : "<span></span>"}${next ? `<a href="/knowledge/${esc(next.slug)}">${esc(next.title)} &rarr;</a>` : ""}</div>
 <p class="hint">Want to practise this? Open the <a href="/labs">Payment Labs</a> or find a course in the <a href="/academy">Academy</a>.</p>`;
