@@ -607,6 +607,119 @@ An acquirer that takes more risk charges more. High-dispute sectors, long delive
 
 If a payment fails after a hotel stay, is it dual or single message? Which party absorbs a sale charged back after the merchant has gone bankrupt? Why can netting turn many billions of purchases into a handful of transfers? The [Terminal messaging course](/academy/terminal-messaging) asks these and more.` });
 
+pages.push({ slug: "how-interchange-and-fees-work", title: "How interchange and fees work", category: "Concepts", summary: "Who sets interchange, what decides the rate, four fee shapes with worked examples, incentives, blended versus interchange-plus pricing, and the cost of settling late.", markdown: `When a customer pays 100.00 by card, the merchant does not receive 100.00. Part of the amount goes to the issuer as **interchange**, part to the card scheme, and part stays with the acquirer. This guide shows how the interchange part is built. Try it in the [Fees lab](/labs/fees). Every rate on this site is invented for teaching.
+
+## Who sets interchange, and who earns it
+
+Interchange is paid by the **acquirer** to the **issuer** on each payment. The card scheme usually publishes the rates but does not keep the interchange itself. Participants do not negotiate it payment by payment. The scheme earns its own, separate **scheme fee**.
+
+## What decides the rate
+
+1. **Where the merchant and the issuer are.** Both in the same country is **domestic**. Different countries in the same region is **intraregional**. Different regions is **interregional**. Cheapest to dearest is usually in that order.
+2. **The kind of card.** Debit usually costs less than credit, and premium or corporate cards cost more.
+3. **How the card was used.** Chip, contactless and strongly authenticated online payments cost less. Manually keyed and unauthenticated online payments cost more, because they carry more fraud.
+4. **Local conditions.** Markets differ in maturity, how many people use cards, fraud levels, and what a cash or bank transfer would cost instead. Rates also reflect competition between schemes.
+
+A **rate designator** is the code attached to a transaction so everyone applies the same row of the rate table. If the acquirer sends the wrong one, the issuer or the clearing system may reject the message.
+
+## Four fee shapes
+
+- **Flat**: a fixed amount per payment, such as 0.10.
+- **Percentage**: a share of the amount, such as 0.30%.
+- **Combined**: a flat part plus a percentage, such as 0.05 + 0.35%.
+- **Percentage with a minimum and maximum**: the percentage is worked out, then held between a floor and a ceiling.
+
+Worked example, percentage: 0.30% of 100.00 is 0.30. The issuer keeps 0.30 out of the 100.00 it owes, so the acquirer is credited **99.70**.
+
+Worked example, combined, on a cash withdrawal: a flat 0.50 plus 0.15% of 200.00 (0.30) is 0.80. For cash the issuer paid out money, so the acquirer is credited the cash amount **plus** the fee: **200.80**.
+
+Worked example, minimum and maximum: 1.10% of 10.00 is 0.11, but the minimum is 0.20, so the fee is 0.20. On a very large payment the maximum would apply instead.
+
+## Incentives
+
+Rates are used to steer behaviour. A lower rate for chip, contactless and strongly authenticated online payments rewards the ways of paying that cut fraud. A higher rate for keyed or unauthenticated payments passes the cost of risk to the people who take it.
+
+## What the merchant pays
+
+The merchant's total fee is interchange + scheme fee + acquirer markup. How it is shown is the **pricing model**:
+
+- **Interchange-plus**: the merchant sees each part. Costs move with the real cost of each payment. It is more transparent and cheaper when most payments are cheap.
+- **Blended**: one flat rate for everything. It is simple to understand and budget, but the merchant overpays on cheap payments (domestic debit, contactless) and underpays on dear ones (foreign credit, keyed). The acquirer keeps the difference.
+
+Compare both for your own mix of payments before signing. The [Fees lab](/labs/fees) does this for any single payment.
+
+## Late settlement costs money too
+
+A participant in a net debit position must fund its settlement account by the **value date**. Failing to do so brings interest, cost recovery and a daily assessment. A typical rule is a flat daily charge for small amounts and a percentage of the unpaid amount for large ones. Example with invented numbers: owing 30,000.00 for 20 days at 200.00 a day costs 4,000.00. The charge is usually worked out only after the debt is paid, so it arrives later as its own bill.
+
+## Where the numbers come from
+
+Real rates are published by the card schemes and by regulators in some regions, which cap them. Rates change, so always use the current published table and your own contract. See also [Settlement, routing and what an acquirer does](/knowledge/settlement-routing-and-the-acquirer) and [Clearing, settlement advice and reconciliation](/knowledge/clearing-settlement-advice-and-reconciliation).` });
+
+pages.push({ slug: "clearing-settlement-advice-and-reconciliation", title: "Clearing, settlement advice and reconciliation", category: "Concepts", summary: "The three clearing steps, presentment windows, rejections, net settlement and value dates, billing, how to reconcile an advice, and the dispute ladder with who pays what.", markdown: `Authorisation checks that a payment can happen. **Clearing** and **settlement** make it pay. This guide follows the acquirer's side of that path and shows how to check that the money that arrives is the money you expected. Practise it in the [Clearing and reconciliation lab](/labs/clearing).
+
+## The three steps of clearing
+
+1. **Submission.** The acquirer collects the day's captured sales, mostly from the files its terminals and gateways upload, and sends them to the clearing system in a file. Each sale becomes a **first presentment** message carrying the amount, date and time, approval code, merchant and terminal identifiers, and the rate designator.
+2. **Acknowledgement.** The clearing system checks every file and message and replies. It acknowledges groups of accepted messages, not each transaction.
+3. **Notification.** The issuer is sent the messages that were accepted. The acquirer is told about chargebacks the issuer raised.
+
+The acquirer starts clearing, because it wants to be paid. The issuer starts the dispute cycle.
+
+## Windows and cycles
+
+A sale must be presented within a fixed number of days: shorter for electronically recorded sales (seven in our lab) and longer for manual ones (thirty). After that, clearing refuses it. Files may be sent at any hour, but the system processes them in scheduled **cycles** several times a day, and a file sent after the last **cut-off** waits for the next settlement day. Some days have no processing at all.
+
+## Checks and rejections
+
+Every file and message is edited. A **file** is rejected whole for things like a repeated file id, a missing header or trailer, or a trailer count that does not match the messages. A **message** is rejected for things like an invalid expiry date, a rate designator that does not exist, or a sale already presented. The rejection report names the file, the field and up to ten error codes.
+
+If every message in a file is rejected, the file is rejected too. Rejected items are **never paid**. The acquirer must fix them and send them again in a new file, within the presentment window. That is why an unnoticed rejection becomes lost money.
+
+## Settlement and the advice
+
+Clearing moves data. **Settlement** moves money. At each settlement cut-off the settlement system adds up all credits and debits for each participant and works out one **net position**. It then sends a **settlement advice** to the settlement bank: the net amount, the settlement date and the **value date**, which is the day funds must move.
+
+Funds move only on days the settlement bank is open, so holidays and weekends push the value date. A participant in net debit must fund its account by then. A participant in net credit is paid.
+
+The advice gives you **one** number. It does not list what is in it.
+
+## Billing arrives in the same flow
+
+The scheme bills participants for its services and for fees. Those charges can be collected through settlement itself, by direct debit, or as fee-collection messages in the clearing file. Three different organisations can appear on one invoice: the one being invoiced, the one that received the service, and the one that pays. They may all be different.
+
+## Reconciliation: the three-way match
+
+To check the advice, you add together the cycle summary reports for the files that settled that day. The summary lists each file, how many messages were accepted and their total. The advice net should equal:
+
+accepted totals − fees − chargebacks and other debits
+
+Then compare that against **your own** total of what you sent. Any gap must be explained by something on the reports:
+
+- sales **rejected** and not yet paid,
+- **fees** deducted,
+- **chargebacks** received,
+- **timing**, such as a file that settled on a later day,
+- **currency** differences if settlement is in another currency.
+
+If the gap cannot be explained, it is a real break and must be investigated before the money is assumed to be safe.
+
+Two worlds exist. In **dual message** processing, clearing is separate from authorisation, so the clearing reports above are your source. In **single message** processing (typical for PIN debit), authorisation carries the financial data, so the daily control report from the switch is matched against the advice instead, and fees come through as separate fee-collection messages.
+
+## The dispute ladder
+
+Disputes run through the same clearing files, and money moves at each step:
+
+1. **First presentment**: acquirer credited, issuer debited.
+2. **First chargeback**: the issuer returns it with a reason code. Issuer credited, acquirer debited.
+3. **Second presentment**: the acquirer answers with evidence. Acquirer credited again.
+4. **Arbitration chargeback**: the issuer still disagrees. Issuer credited again.
+5. **Arbitration case**: either side asks the scheme to rule. The loser pays filing and administrative fees. A participant that broke dispute-processing rules also pays a technical fee for each violation.
+
+Chargeback reasons fall into four groups: authorisation, fraud, cardholder dispute and processing errors. If someone broke the rules and caused a loss but no chargeback reason fits, a **compliance case** is used instead, usually after a pre-compliance attempt. Merchants should read the evidence advice in [Chargeback defence and evidence](/knowledge/chargeback-defence-and-evidence).
+
+All figures, windows and fees in our labs are invented. Use your scheme's current rules for real work.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

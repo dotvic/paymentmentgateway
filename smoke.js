@@ -1091,13 +1091,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 13);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 14);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1261,6 +1261,37 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
         assert.equal(aa.body.terminal_asks, "ARQC"); assert.equal(aa.body.card_response_valid, false);
         const ab = await AT("POST", "/v1/terminal/action-analysis", { tvr: "0000008000", tac_denial: "0000008000", tac_online: "0000000000", tac_default: "0000000000", iac_denial: "0000000000", iac_online: "0000000000", iac_default: "0000000000" }); assert.equal(ab.body.terminal_asks, "AAC");
         assert.equal((await AT("POST", "/v1/terminal/action-analysis", { tvr: "zz" })).status, 400);
+      }
+      { // fees lab and clearing lab
+        const AF = await fresh();
+        const q = (b) => AF("POST", "/v1/fees/interchange", { merchant_country: "PL", issuer_country: "PL", entry: "chip", card: "credit", ...b });
+        const d1 = await q({ amount: 10000, blended_bps: 160 }); assert.equal(d1.status, 200); assert.equal(d1.body.level, "domestic"); assert.equal(d1.body.interchange.cents, 25); assert.equal(d1.body.acquirer_credited_cents, 9975);
+        assert.equal(d1.body.scheme_fee_cents, 12); assert.equal(d1.body.interchange_plus.merchant_fee_cents, 67); assert.equal(d1.body.blended.difference_vs_interchange_plus_cents, 93);
+        const i1 = await q({ amount: 1000, issuer_country: "US", card: "debit", entry: "manual" }); assert.equal(i1.body.level, "interregional"); assert.equal(i1.body.interchange.cents, 20, "minimum applies");
+        const c1 = await q({ amount: 10000, transaction: "cash" }); assert.equal(c1.body.interchange.cents, 65); assert.equal(c1.body.acquirer_credited_cents, 10065, "cash: acquirer is credited the amount plus the fee");
+        assert.equal((await q({ amount: 10000, issuer_country: "XX" })).status, 400); assert.equal((await q({ amount: 1.5 })).status, 400);
+        assert.equal((await AF("POST", "/v1/fees/late-assessment", { unpaid_cents: 3000000, days: 20 })).body.total_cents, 400000);
+        assert.equal((await AF("POST", "/v1/fees/late-assessment", { unpaid_cents: 20000000, days: 2 })).body.per_day_cents, 40000);
+        assert.equal((await AF("POST", "/v1/fees/late-assessment", { unpaid_cents: 100, days: 0 })).status, 400);
+        const AC = await fresh(), F = (b) => AC("POST", "/v1/clearing/file", b);
+        assert.equal((await AC("GET", "/v1/clearing")).body.items.length, 12);
+        const f1 = await F({ file_id: "F001", cycle: 1, message_ids: ["S01", "S02", "S03", "S04", "S05"], trailer_count: 5 }); assert.equal(f1.body.status, "accepted"); assert.equal(f1.body.acknowledgement.accepted_total_cents, 25899);
+        const dup = await F({ file_id: "F001", cycle: 2, message_ids: ["S08"], trailer_count: 1 }); assert.equal(dup.body.status, "rejected"); assert.equal(dup.body.file_error.code, "duplicate_file_id");
+        const tr = await F({ file_id: "F002", cycle: 2, message_ids: ["S08"], trailer_count: 5 }); assert.equal(tr.body.file_error.code, "trailer_count_mismatch");
+        const f3 = await F({ file_id: "F003", cycle: 2, message_ids: ["S06", "S07", "S08", "S09", "S10", "S11", "S12"], trailer_count: 7 }); assert.equal(f3.body.status, "partly_rejected");
+        assert.deepEqual(f3.body.rejected.map((x) => x.id + ":" + x.code), ["S06:presentment_expired", "S10:presentment_expired"]);
+        const f4 = await F({ file_id: "F004", cycle: 2, message_ids: ["S01"], trailer_count: 1 }); assert.equal(f4.body.rejected[0].code, "duplicate_presentment"); assert.equal(f4.body.status, "rejected");
+        assert.equal((await F({ file_id: "bad", cycle: 1, message_ids: ["S01"], trailer_count: 1 })).status, 400); assert.equal((await F({ file_id: "F009", cycle: 9, message_ids: ["S01"], trailer_count: 1 })).status, 400);
+        assert.equal((await AC("GET", "/v1/clearing/advice?day=1")).status, 404);
+        const ad = await AC("GET", "/v1/clearing/advice?day=0"); assert.equal(ad.status, 200); assert.equal(ad.body.advice.net_cents, 53589); assert.equal(ad.body.value_date, "2030-03-19", "Monday is a bank holiday"); assert.equal(ad.body.your_ledger.submitted_gross_cents, 97439);
+        assert.equal(ad.body.notifications[0].debit_cents, 1800);
+        const rc0 = await AC("POST", "/v1/clearing/reconcile", { day: 0, gross_cents: ad.body.your_ledger.submitted_gross_cents }); assert.equal(rc0.body.status, "break"); assert.ok(rc0.body.hint.length === 3);
+        const rc1 = await AC("POST", "/v1/clearing/reconcile", { day: 0, gross_cents: ad.body.your_ledger.submitted_gross_cents, explained_by: ["rejected", "fees", "chargebacks"] }); assert.equal(rc1.body.status, "reconciled"); assert.equal(rc1.body.difference_cents, 0);
+        assert.equal((await AC("POST", "/v1/clearing/reconcile", { day: 0, gross_cents: 1, explained_by: ["x"] })).status, 400); assert.equal((await AC("POST", "/v1/clearing/reconcile", { day: 1, gross_cents: 1 })).status, 409);
+        const es = await AC("POST", "/v1/clearing/escalate", { amount_cents: 12000, winner: "acquirer", technical_violations: { acquirer: 1 } }); assert.equal(es.status, 200); assert.equal(es.body.total_fees_by_party_cents.issuer, 32000); assert.equal(es.body.total_fees_by_party_cents.acquirer, 8000); assert.equal(es.body.steps.length, 5);
+        assert.equal((await AC("POST", "/v1/clearing/escalate", { amount_cents: 12000, winner: "nobody" })).status, 400);
+        const tk = await AC("POST", "/v1/academy/courses/fees-clearing-reconciliation/tasks/check"); assert.equal(tk.status, 200); assert.equal(tk.body.tasks_done, 3);
+        const tk2 = await AF("POST", "/v1/academy/courses/fees-clearing-reconciliation/tasks/check"); assert.equal(tk2.body.tasks_done, 4);
       }
       { // issuer view of wallet provisioning
         const AI = await fresh();
