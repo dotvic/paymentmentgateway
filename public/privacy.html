@@ -36,7 +36,7 @@ tr:last-child td{border-bottom:0}
 <h1>Privacy policy</h1>
 <p class="meta">Last updated {{UPDATED}}</p>
 
-<div class="box"><strong>In short:</strong> we collect very little. There is no email or name needed to use the Free plan, no cookies and no tracking. We store your test payments and webhook settings to run the service, and you can delete everything yourself at any time.</div>
+<div class="box"><strong>In short:</strong> we collect very little. There is no email or name needed to use the Free plan, no cookies and no tracking of individuals (we only count page views in aggregate, see section 3). We store your test payments and webhook settings to run the service, and you can delete everything yourself at any time.</div>
 
 <h2>1. Who is responsible</h2>
 <p>The controller of your personal data is {{OPERATOR}}, {{ADDRESS}}. Contact for any privacy question or request: {{EMAIL}}.</p>
@@ -58,7 +58,7 @@ tr:last-child td{border-bottom:0}
 <p><strong>Please do not send real personal data or real card numbers</strong> to the service. It is a test tool, and the <a href="/terms">terms</a> forbid it.</p>
 
 <h2>3. Cookies, browser storage and third parties on the site</h2>
-<p>The website sets no cookies and uses no analytics, advertising or tracking tools. It loads no scripts, fonts or images from other sites. To keep you signed in, the page saves your API key in your browser's local storage on your own device. You can remove it with "Forget key in this browser" or by clearing your browser's site data. That storage is strictly necessary for the page to work after a reload, and it is never sent to anyone except to this service as your API key.</p>
+<p>The website sets no cookies and uses no advertising or tracking tools, and no third-party analytics. To know how many people use the site, we count page views ourselves, without cookies: for each page that loads we add one to a daily total for that page, for the referring website (the site name only) and for mobile or desktop. To estimate daily visitors we compute a one-way hash of your IP address and browser string with a secret that changes every day and on every restart. The hash is kept only in the server's memory, is never written to the database, and cannot be reversed. Only the daily totals are stored, for about 120 days. We do not count visitors who send a Do Not Track or Global Privacy Control signal. It loads no scripts, fonts or images from other sites. To keep you signed in, the page saves your API key in your browser's local storage on your own device. You can remove it with "Forget key in this browser" or by clearing your browser's site data. That storage is strictly necessary for the page to work after a reload, and it is never sent to anyone except to this service as your API key.</p>
 
 <h2>4. Who receives data</h2>
 <ul>
@@ -79,6 +79,7 @@ tr:last-child td{border-bottom:0}
 <ul>
 <li>Account, payment and webhook data: until you delete your account.</li>
 <li>Certificates, job listings and startup entries: until you remove them or delete your account, or until we remove them under the rules; job listings also expire after 60 days.</li>
+<li>Daily page-view totals (no personal data): about 120 days.</li>
 <li>Test payments: we keep at most the latest 500 per account, and older ones are dropped automatically.</li>
 <li>Free accounts that have not been used for {{DAYS}} days are deleted automatically.</li>
 <li>Pro accounts: while the subscription is active.</li>

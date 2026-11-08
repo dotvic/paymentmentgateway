@@ -568,6 +568,20 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.equal((await call("GET", "/admin/status", null, "nope")).status, 401);
       const st = await call("GET", "/admin/status", null, env3.ADMIN_TOKEN);
       assert.equal(st.status, 200); assert.equal(st.body.accounts, 2); assert.equal(st.body.backups.offsite, true); assert.equal(st.body.backups.encrypted, true);
+      { // visitor counting: privacy-friendly, bots and Do Not Track left out
+        const UA = "Mozilla/5.0 (Windows NT 10.0) Chrome/120 Safari/537.36", MUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17) Mobile Safari";
+        const get = (p2, h) => fetch(B3 + p2, { headers: h });
+        await get("/knowledge", { "user-agent": UA, referer: "https://news.example.org/post" }); await get("/knowledge", { "user-agent": UA }); await get("/academy", { "user-agent": MUA });
+        await get("/knowledge", { "user-agent": UA, dnt: "1" }); await get("/knowledge", { "user-agent": "Googlebot/2.1" }); await get("/no-such-page", { "user-agent": UA });
+        await get("/v1/config", { "user-agent": UA }); await new Promise((r) => setTimeout(r, 150));
+        assert.equal((await call("GET", "/admin/traffic")).status, 401);
+        const tr = (await call("GET", "/admin/traffic?days=7", null, env3.ADMIN_TOKEN)).body;
+        assert.equal(tr.totals.views, 3, "only real pages, no DNT, no bots: " + JSON.stringify(tr)); assert.equal(tr.totals.visitors_sum_of_daily, 2, "same browser counted once"); assert.equal(tr.totals.bot_requests, 1);
+        assert.equal(tr.totals.mobile, 1); assert.equal(tr.top_pages[0].name, "/knowledge"); assert.equal(tr.top_pages[0].count, 2); assert.equal(tr.top_referrers.find((x) => x.name === "news.example.org").count, 1);
+        assert.ok(!JSON.stringify(tr).includes("127.0.0.1"), "no addresses in the report");
+        assert.equal((await call("GET", "/admin/status", null, env3.ADMIN_TOKEN)).body.traffic.today_views, 3);
+        const sp = await get("/stats", { "user-agent": UA }); assert.equal(sp.status, 200); assert.ok((await sp.text()).includes("Admin token"));
+      }
 
       // 4. manual backup: local snapshot, encrypted off-site copy, retention
       const bk = await call("POST", "/admin/backup", null, env3.ADMIN_TOKEN);

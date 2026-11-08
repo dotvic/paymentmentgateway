@@ -696,8 +696,12 @@ function handleStripeEvent(ev) {
 
 const authed = (req) => { const a = auth(req), pl = planOf(a); if (limited(buckets, a.id, PLANS[pl].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down"); return a; };
 const SITE = require("./site")({ send, bad, readBody, rnd, DB, save, saveMaps, limited, clientIp, authed, planOf: (a) => planOf(a), escHtml, publicUrl: PUBLIC_URL });
+const TRAFFIC = require("./sections/traffic")({ DB, saveMaps, clientIp });
+const STATS_PAGE = { body: Buffer.from(TRAFFIC.page()), script: true };
 async function route(req, res) {
   const url = new URL(req.url, "http://x"), path = url.pathname, m = req.method;
+  TRAFFIC.track(req, res, path);
+  if (m === "GET" && path === "/stats") return sendPage(res, STATS_PAGE);
   if (m === "GET" && path === "/health") return send(res, 200, { ok: true });
   if (m === "GET" && PAGES[path]) return sendPage(res, PAGES[path]);
   if (m === "GET" && ASSETS[path]) { res.writeHead(200, { "content-type": ASSETS[path].type, "content-length": ASSETS[path].body.length, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" }); return res.end(ASSETS[path].body); }
@@ -715,12 +719,14 @@ async function route(req, res) {
     if (!crypto.timingSafeEqual(a, b)) throw bad(401, "unauthorized", "Missing or wrong admin token");
     adminFails.delete(clientIp(req));
     if (await SITE.admin(req, res, path, m)) return;
+    if (m === "GET" && path === "/admin/traffic") return send(res, 200, TRAFFIC.report(url.searchParams.get("days")));
     if (m === "GET" && path === "/admin/status") {
       const accounts = Object.values(DB.accounts);
       return send(res, 200, {
         node: process.version, uptime_s: Math.round(process.uptime()), database: DB_FILE, database_bytes: store.sizeBytes(),
         accounts: accounts.length, pro_accounts: accounts.filter((x) => planOf(x) === "pro").length, verified_emails: Object.keys(DB.emails).length,
         backups: backups.status(),
+        traffic: TRAFFIC.summary(),
       });
     }
     if (m === "POST" && path === "/admin/backup") {
