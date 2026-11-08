@@ -720,6 +720,100 @@ Chargeback reasons fall into four groups: authorisation, fraud, cardholder dispu
 
 All figures, windows and fees in our labs are invented. Use your scheme's current rules for real work.` });
 
+pages.push({ slug: "how-qr-payments-work", title: "How QR payments work", category: "Concepts", summary: "What is inside a QR payment code, static versus dynamic, merchant- versus consumer-presented codes, how the money moves behind them, and what a good implementation looks like.", markdown: `A QR code on a till, a bill or a screen is a way to pass a short piece of text to a phone quickly and without typing mistakes. In payments, that text says who should be paid and, often, how much. This guide explains what is inside, the main kinds of QR payment, and how the money then moves. Take a code apart in the [QR payments lab](/labs/qr). All names and accounts on this site are fictional.
+
+## A QR code is only text
+
+The black and white squares are an encoding of a string of characters, with built-in error correction so a scratched or dirty code can still be read. The code itself contains no security. Anyone can print any text. What a payment app does with that text is where the payment lives.
+
+## What a merchant's payload looks like
+
+Most merchant codes follow an open convention of **tag-length-value** fields: a two-digit tag, a two-digit length, then the value. For example, tag 59 with length 14 and the value BLUE BEAN CAFE means the payee name. Common fields:
+
+- **Format version** and **initiation method** (static or dynamic).
+- **Payee account information**: an identifier for the scheme or app, and the payee's account or merchant ID inside it.
+- **Merchant category code**, **currency** (a three-digit number such as 978 for euro), **amount** if there is one, **country**, **payee name** and **city**.
+- **Additional data**, such as a bill number or a **reference label** that lets the payee match the payment to an order.
+- A **checksum** (CRC-16) as the very last field.
+
+The checksum is a short number worked out from all the text before it. A scanner recalculates it and refuses the code if it differs. It catches damage and careless edits. It does **not** stop a forger, who can simply calculate a new one.
+
+## Static and dynamic codes
+
+- A **static** code is printed once and stays the same. It carries no amount, so the payer types one. It is cheap and works for a market stall, a tip jar or a donation box. Its weakness is that nothing ties a payment to one order, so matching depends on amount and time, and anyone can stick a different code over it.
+- A **dynamic** code is made for one invoice. It carries the amount and a reference, expires after a short time, and should work **once**. It suits online checkout and a till screen. It reconciles cleanly and gives a forger much less room.
+
+## Who shows the code
+
+- **Merchant-presented**: the payee shows a code, the customer's app scans it and the customer approves. Everything above describes this kind.
+- **Consumer-presented**: the customer's app shows a code and the terminal scans it. The code holds a short-lived **token** that the payee's acquirer redeems with the customer's wallet. It must never contain the card number, and it should expire in minutes or seconds. See [Tokenization](/knowledge/tokenization).
+
+## How the money moves
+
+It depends on what stands behind the code:
+
+- **Card-backed**: the app turns the scan into an ordinary card or token payment. Authorisation, clearing and settlement follow the usual path, and chargeback rights usually exist. See [the payment lifecycle](/knowledge/payment-lifecycle).
+- **Bank-transfer-backed**: the app asks the customer's bank to send a transfer to the payee's account, often as an instant payment. There is no card network and no interchange. Rights to reverse a payment are set by the bank and by local law, and are usually weaker than a card chargeback, because an instant transfer is final.
+- **Wallet balance**: the app moves money inside its own ledger, and settles with banks separately.
+
+## Regional schemes
+
+Several countries have their own QR payment standards on top of local instant bank transfers. They differ in the fields they carry, how amounts are confirmed and who is liable, so always read the local scheme's rules. The ideas in this guide (payee, amount, reference, expiry, single use) apply to all of them.
+
+## What a good implementation looks like
+
+- The app shows the **payee name** it read from the code, the **amount** and the **currency** before the customer confirms.
+- Dynamic codes **expire** and are **single use**, and the payee checks the reference and the amount against the invoice it issued.
+- The payee displays codes on a screen it controls, or protects printed codes against stickers placed over them.
+- The customer's code is a **token** with a short life.
+
+Next: [QR fraud and safe scanning](/knowledge/qr-payment-fraud-and-safe-scanning).` });
+
+pages.push({ slug: "qr-payment-fraud-and-safe-scanning", title: "QR fraud and safe scanning", category: "Concepts", summary: "Seven common QR payment schemes, what customers, merchants and providers can check, and what to do after paying the wrong account.", markdown: `Because a QR code is only text, the risk is not in the code. It is in **who made it, who sees it and what the customer assumes**. This guide lists the common schemes and the checks that stop them. Practise on seven examples in the [QR payments lab](/labs/qr).
+
+## Common schemes
+
+1. **Sticker over a sticker.** A criminal covers the merchant's printed code with their own. The payee name can be copied, but the **account** is the criminal's. Customers pay, and the merchant sees nothing.
+2. **Tampered invoice.** A code on a fake or altered invoice asks for more than the invoice shows, or pays another account.
+3. **Code in a message.** An email, text or chat asks you to scan an attached code for a parcel fee, a fine or a refund. The message creates urgency so you do not look closely.
+4. **Fake support or fake survey.** The code sends you to a page or an app that asks for your card or your login rather than making a payment.
+5. **Reused or old dynamic code.** A payee that accepts an expired or already paid code can be tricked into double payment or into refunding twice.
+6. **Shoulder-surfed or photographed customer code.** If the customer's code is a long-lived token, a photo of it can be reused. A short-lived one cannot.
+7. **Quishing.** The word for phishing through a QR code. Because the link is hidden from the eye, a code on a poster, a parking meter or a menu can lead anywhere.
+
+## What the customer can check
+
+- Read the **payee name and account** your app shows. Do they match the business? Do not rely on the logo.
+- Compare the **amount** with the bill. If your app lets you edit it, check twice.
+- Be suspicious of **urgency**: "pay now", "service stops", "refund waiting".
+- Treat a code that opens a **web page asking for card details** as a red flag. A real payment app does not ask you to type your card number into a page you reached by scanning.
+- Look for **tampering**: a sticker with a different edge, a code printed on paper over metal.
+- If unsure, contact the business through a number or address you already trust.
+
+## What the merchant can do
+
+- Prefer **dynamic** codes that show on a screen the merchant controls.
+- If you must print a static code, put it behind a cover, fix it so it cannot be overlaid, check it daily, and name the payee account on the sign next to it.
+- Check the **reference and amount** of every incoming payment against the order, and reject expired or repeated references.
+- Tell staff that customers will report a failed payment, and that a "payment failed but money gone" report may mean a swapped sticker.
+
+## What the payment provider can do
+
+- **Show the payee name** the code resolves to, and verify it, not just copy what the code says.
+- Warn on **new or unusual payees**, high amounts and edited amounts.
+- Check the **checksum** and the format, refuse malformed codes, and enforce expiry and single use.
+- For consumer-presented codes, issue **short-lived tokens** and bind them to a device.
+- Offer a simple way to **report** a bad code, and take it down quickly.
+- For bank transfers, apply the same name-check and delay rules as any other transfer, because instant payments cannot be called back.
+
+## If you paid the wrong account
+
+Act at once. Contact your bank or payment provider, tell them it was a fraud or an error and give the time, amount and payee shown. Report it to the business and to the police if it was fraud. For instant bank transfers, recovery depends on the receiving bank and on how quickly it was told. Card-backed payments may be disputed. See [Chargeback defence and evidence](/knowledge/chargeback-defence-and-evidence) for how disputes work.
+
+## The core habit
+
+Look at the **payee**, the **amount** and the **message** before you press confirm. The scan is only the start of the payment.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

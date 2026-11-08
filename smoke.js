@@ -1091,13 +1091,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation", "/labs/qr", "/knowledge/how-qr-payments-work", "/knowledge/qr-payment-fraud-and-safe-scanning", "/academy/qr-payments"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 14);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 15);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1292,6 +1292,27 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
         assert.equal((await AC("POST", "/v1/clearing/escalate", { amount_cents: 12000, winner: "nobody" })).status, 400);
         const tk = await AC("POST", "/v1/academy/courses/fees-clearing-reconciliation/tasks/check"); assert.equal(tk.status, 200); assert.equal(tk.body.tasks_done, 3);
         const tk2 = await AF("POST", "/v1/academy/courses/fees-clearing-reconciliation/tasks/check"); assert.equal(tk2.body.tasks_done, 4);
+      }
+      { // QR payments lab
+        const AQ = await fresh(), QB = (b) => AQ("POST", "/v1/qr/build", { name: "BLUE BEAN CAFE", city: "WARSAW", account: "CAFE-7731", ...b });
+        const st1 = await QB({ amount: "5.00" }); assert.equal(st1.status, 200); assert.equal(st1.body.kind, "static"); assert.ok(st1.body.svg.startsWith("<svg")); assert.ok(st1.body.payload.startsWith("000201010211"));
+        const d1 = await AQ("POST", "/v1/qr/decode", { payload: st1.body.payload }); assert.equal(d1.body.checksum_ok, true); assert.equal(d1.body.valid, true); assert.equal(d1.body.payee.account, "CAFE-7731"); assert.equal(d1.body.amount, "5.00");
+        const tam = st1.body.payload.replace("5.00", "9.00"); const d2 = await AQ("POST", "/v1/qr/decode", { payload: tam }); assert.equal(d2.body.checksum_ok, false); assert.equal(d2.body.valid, false);
+        assert.equal((await AQ("POST", "/v1/qr/decode", { payload: "0002" })).body.valid, false); assert.equal((await AQ("POST", "/v1/qr/decode", { payload: "" })).status, 400);
+        assert.equal((await QB({ dynamic: true, amount: "10.00" })).status, 400, "dynamic needs a reference"); assert.equal((await QB({ name: "" })).status, 400); assert.equal((await QB({ amount: "1,5" })).status, 400);
+        const dy = await QB({ dynamic: true, amount: "18.50", reference: "INV-1" }); assert.equal(dy.body.kind, "dynamic");
+        const p1 = await AQ("POST", "/v1/qr/pay", { payload: dy.body.payload }); assert.equal(p1.body.status, "paid");
+        const p2 = await AQ("POST", "/v1/qr/pay", { payload: dy.body.payload }); assert.equal(p2.body.status, "rejected"); assert.match(p2.body.reason, /already paid/);
+        const dy2 = await QB({ dynamic: true, amount: "3.00", reference: "INV-2" }); const p3 = await AQ("POST", "/v1/qr/pay", { payload: dy2.body.payload, minutes_later: 20 }); assert.equal(p3.body.status, "rejected"); assert.match(p3.body.reason, /expired/);
+        assert.equal((await AQ("POST", "/v1/qr/pay", { payload: st1.body.payload })).body.status, "rejected", "static needs an amount"); assert.equal((await AQ("POST", "/v1/qr/pay", { payload: st1.body.payload, amount: "5.00" })).body.status, "paid");
+        const sc = await AQ("GET", "/v1/qr/scenarios"); assert.equal(sc.body.scenarios.length, 7); assert.ok(!JSON.stringify(sc.body).includes("why"), "answers hidden");
+        const dcs = await AQ("POST", "/v1/qr/decode", { payload: sc.body.scenarios[5].payload }); assert.equal(dcs.body.checksum_ok, false, "scenario 6 has a broken checksum");
+        const dcg = await AQ("POST", "/v1/qr/decode", { payload: sc.body.scenarios[3].payload }); assert.equal(dcg.body.valid, true);
+        const want = { s1: "pay", s2: "refuse", s3: "refuse", s4: "pay", s5: "refuse", s6: "refuse", s7: "refuse" };
+        const wrong = await AQ("POST", "/v1/qr/scenarios/s2/answer", { decision: "pay" }); assert.equal(wrong.body.correct, false);
+        let last; for (const [id, d] of Object.entries(want)) last = await AQ("POST", `/v1/qr/scenarios/${id}/answer`, { decision: d }); assert.equal(last.body.scenarios_correct, 7);
+        assert.equal((await AQ("POST", "/v1/qr/scenarios/s9/answer", { decision: "pay" })).status, 404); assert.equal((await AQ("POST", "/v1/qr/scenarios/s1/answer", { decision: "maybe" })).status, 400);
+        assert.equal((await AQ("POST", "/v1/academy/courses/qr-payments/tasks/check")).body.tasks_done, 7);
       }
       { // issuer view of wallet provisioning
         const AI = await fresh();
