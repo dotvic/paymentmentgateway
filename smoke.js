@@ -1091,13 +1091,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation", "/labs/qr", "/knowledge/how-qr-payments-work", "/knowledge/qr-payment-fraud-and-safe-scanning", "/academy/qr-payments"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation", "/labs/qr", "/knowledge/how-qr-payments-work", "/knowledge/qr-payment-fraud-and-safe-scanning", "/academy/qr-payments", "/labs/transfers", "/labs/ussd", "/knowledge/account-to-account-payments", "/knowledge/open-banking-payments-and-transfer-fraud", "/knowledge/ussd-and-mobile-money", "/knowledge/mobile-money-safety", "/academy/account-to-account-payments", "/academy/ussd-mobile-money"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 15);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 17);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1313,6 +1313,66 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
         let last; for (const [id, d] of Object.entries(want)) last = await AQ("POST", `/v1/qr/scenarios/${id}/answer`, { decision: d }); assert.equal(last.body.scenarios_correct, 7);
         assert.equal((await AQ("POST", "/v1/qr/scenarios/s9/answer", { decision: "pay" })).status, 404); assert.equal((await AQ("POST", "/v1/qr/scenarios/s1/answer", { decision: "maybe" })).status, 400);
         assert.equal((await AQ("POST", "/v1/academy/courses/qr-payments/tasks/check")).body.tasks_done, 7);
+      }
+      { // account-to-account transfers lab
+        const X1 = await fresh(), snd = (b) => X1("POST", "/v1/transfers/send", b);
+        const g = (await X1("GET", "/v1/transfers")).body, P = g.payees.map((p) => p.number); assert.equal(g.balance_cents, 100000); assert.equal(P.length, 6);
+        assert.equal((await snd({ to_number: P[0].slice(0, 17) + (P[0].slice(17) === "1" ? "2" : "1"), speed: "batch", amount_cents: 100 })).status, 400, "check digits catch a typo");
+        assert.equal((await X1("POST", "/v1/transfers/name-check", { number: P[0], name: "Amber Property Ltd" })).body.result, "match");
+        assert.equal((await X1("POST", "/v1/transfers/name-check", { number: P[2], name: "D Whitfield" })).body.result, "close_match");
+        assert.equal((await X1("POST", "/v1/transfers/name-check", { number: P[0], name: "Zed Holdings" })).body.result, "no_match");
+        assert.equal((await X1("POST", "/v1/transfers/name-check", { number: P[4], name: "Sky Savings Society" })).body.result, "unavailable");
+        const b1 = await snd({ to_number: P[0], to_name: "Amber Property Ltd", speed: "batch", amount_cents: 2500 }); assert.equal(b1.body.status, "submitted"); assert.equal(b1.body.balance_cents, 97500);
+        const c1 = await X1("POST", "/v1/transfers/T1/cancel", {}); assert.equal(c1.body.status, "cancelled"); assert.equal(c1.body.balance_cents, 100000);
+        await snd({ to_number: P[0], to_name: "Amber Property Ltd", speed: "batch", amount_cents: 2500 }); const adv = await X1("POST", "/v1/transfers/advance", {}); assert.equal(adv.body.transfers[1].status, "completed");
+        assert.equal((await X1("POST", "/v1/transfers/T2/cancel", {})).status, 409, "too late to cancel"); assert.equal((await X1("POST", "/v1/transfers/T2/recall", { reason: "error" })).body.status, "recalled");
+        assert.equal((await snd({ to_number: P[0], to_name: "Zed Holdings", speed: "batch", amount_cents: 100 })).status, 409, "name mismatch needs confirmation");
+        assert.equal((await snd({ to_number: P[0], speed: "instant", amount_cents: 60000 })).body.error.code, "over_instant_limit"); assert.equal((await snd({ to_number: P[4], speed: "instant", amount_cents: 100 })).body.error.code, "instant_not_supported");
+        assert.equal((await snd({ to_number: P[3], speed: "instant", amount_cents: 1000 })).body.status, "rejected"); const cb = await snd({ to_number: P[3], speed: "batch", amount_cents: 1000 }); assert.equal(cb.body.balance_cents, 99000);
+        assert.equal((await X1("POST", "/v1/transfers/advance", {})).body.transfers.pop().status, "returned");
+        const w = await snd({ to_number: P[5], speed: "instant", amount_cents: 30000 }); assert.equal(w.body.error.code, "scam_warning"); const lost = await snd({ to_number: P[5], speed: "instant", amount_cents: 30000, acknowledge_warning: true }); assert.equal(lost.body.status, "completed");
+        const fr = await X1("POST", `/v1/transfers/${lost.body.id}/recall`, { reason: "fraud" }); assert.equal(fr.body.status, "recall_failed"); assert.equal(fr.body.recovered_cents, 0);
+        const g2 = (await X1("GET", "/v1/transfers")).body; assert.equal(g2.balance_cents, 70000); assert.equal(g2.lost_to_fraud_cents, 30000);
+        assert.equal((await X1("POST", "/v1/academy/courses/account-to-account-payments/tasks/check")).body.tasks_done, 5);
+        const X2 = await fresh(), Pn = (await X2("GET", "/v1/transfers")).body.payees.map((p) => p.number);
+        const mm = await X2("POST", "/v1/transfers/mandates", { creditor: "Northwind Utilities", max_cents: 10000 }); assert.equal(mm.body.id, "M1");
+        assert.equal((await X2("POST", "/v1/transfers/debits", { amount_cents: 100 })).body.error.code, "no_mandate"); const d1 = await X2("POST", "/v1/transfers/debits", { mandate_id: "M1", amount_cents: 8740 }); assert.equal(d1.body.status, "collected");
+        assert.equal((await X2("POST", "/v1/transfers/debits", { mandate_id: "M1", amount_cents: 20000 })).body.error.code, "above_mandate_limit"); assert.equal((await X2("POST", "/v1/transfers/debits/D99/refund", { days_since: 10 })).status, 404);
+        assert.equal((await X2("POST", `/v1/transfers/debits/${d1.body.id}/refund`, { days_since: 10 })).body.status, "refunded");
+        const d2 = await X2("POST", "/v1/transfers/debits", { mandate_id: "M1", amount_cents: 500 }); assert.equal((await X2("POST", `/v1/transfers/debits/${d2.body.id}/refund`, { days_since: 100 })).body.error.code, "outside_refund_window");
+        await X2("POST", "/v1/transfers/mandates/M1/cancel", {}); assert.equal((await X2("POST", "/v1/transfers/debits", { mandate_id: "M1", amount_cents: 500 })).body.error.code, "mandate_cancelled");
+        const i1 = await X2("POST", "/v1/transfers/initiations", { app: "ShopApp", payee_number: Pn[0], amount_cents: 3990 }); assert.equal(i1.body.status, "awaiting_consent"); assert.match(i1.body.consent_screen, /will not see your login/);
+        assert.equal((await X2("POST", `/v1/transfers/initiations/${i1.body.id}/consent`, { approve: true })).body.status, "paid");
+        const i2 = await X2("POST", "/v1/transfers/initiations", { payee_number: Pn[0], amount_cents: 100 }); assert.equal((await X2("POST", `/v1/transfers/initiations/${i2.body.id}/consent`, { approve: true, minutes_later: 20 })).body.status, "expired");
+        const i3 = await X2("POST", "/v1/transfers/initiations", { payee_number: Pn[0], amount_cents: 100 }); assert.equal((await X2("POST", `/v1/transfers/initiations/${i3.body.id}/consent`, { approve: false })).body.status, "refused");
+        const sc = await X2("GET", "/v1/transfers/scenarios"); assert.equal(sc.body.scenarios.length, 7); assert.ok(!JSON.stringify(sc.body).includes('"why"'));
+        assert.equal((await X2("POST", "/v1/transfers/scenarios/s2/answer", { decision: "send" })).body.correct, false);
+        for (const [id, d] of Object.entries({ s1: "send", s2: "stop", s3: "stop", s4: "send", s5: "stop", s6: "send", s7: "stop" })) assert.equal((await X2("POST", `/v1/transfers/scenarios/${id}/answer`, { decision: d })).body.correct, true);
+        assert.equal((await X2("POST", "/v1/academy/courses/account-to-account-payments/tasks/check")).body.tasks_done, 3);
+      }
+      { // USSD mobile money lab
+        const U1 = await fresh(), call = async (a, b, c) => (await U1(a, b, c)).body, dial = async () => (await call("POST", "/v1/ussd/dial", { code: "*123#" })).session_id;
+        const rp = (sid, input, x) => call("POST", "/v1/ussd/reply", { session_id: sid, input, ...x });
+        assert.match((await call("POST", "/v1/ussd/dial", { code: "*999#" })).screen, /invalid/i);
+        let s = await dial(); await rp(s, "2"); assert.match((await rp(s, "123")).screen, /Invalid number/); assert.match((await rp(s, "0712345678")).screen, /amount/); assert.match((await rp(s, "20.00")).screen, /Fee 0\.30/); await rp(s, "1");
+        assert.match((await rp(s, "0000")).screen, /2 tries left/); const ok = await rp(s, "1234"); assert.match(ok.screen, /Ref TX-0001/); assert.equal(ok.end, true);
+        assert.equal((await call("GET", "/v1/ussd")).balance_cents, 7970);
+        s = await dial(); await rp(s, "2"); await rp(s, "0712345678"); const dup = await rp(s, "20.00"); assert.match(dup.screen, /a moment ago/); assert.match((await rp(s, "2")).screen, /Nothing was sent/);
+        s = await dial(); await rp(s, "2"); await rp(s, "0712345678"); await rp(s, "5.00"); await rp(s, "1"); const dr = await rp(s, "1234", { drop_reply: true }); assert.equal(dr.dropped, true); assert.equal(dr.screen, null);
+        s = await dial(); await rp(s, "5"); await rp(s, "1"); const hist = await rp(s, "1234"); assert.match(hist.screen, /TX-0002 send 5\.00/);
+        for (const x of (await call("GET", "/v1/ussd")).ledger) assert.ok(!Object.keys(x).some((k) => /pin/i.test(k)), "PIN never stored in the ledger");
+        assert.equal((await call("POST", "/v1/academy/courses/ussd-mobile-money/tasks/check")).tasks_done, 3);
+        const U2 = await fresh(), c2 = async (a, b, c) => (await U2(a, b, c)).body, d2 = async () => (await c2("POST", "/v1/ussd/dial", { code: "*123#" })).session_id, r2 = (sid, input, x) => c2("POST", "/v1/ussd/reply", { session_id: sid, input, ...x });
+        let q = await d2(); const to = await r2(q, "1", { idle_seconds: 90 }); assert.equal(to.timed_out, true); assert.equal((await U2("POST", "/v1/ussd/reply", { session_id: q, input: "1" })).status, 404);
+        q = await d2(); await r2(q, "1"); await r2(q, "0000"); await r2(q, "0000"); assert.match((await r2(q, "0000")).screen, /locked/); q = await d2(); await r2(q, "1"); assert.match((await r2(q, "1234")).screen, /locked/);
+        assert.equal((await U2("POST", "/v1/ussd/agent/unlock", { agent_code: "AG-204" })).status, 422); assert.equal((await c2("POST", "/v1/ussd/agent/unlock", { agent_code: "AG-204", id_checked: true })).status, "unlocked");
+        assert.equal((await c2("POST", "/v1/ussd/agent", { kind: "in", amount_cents: 5000, agent_code: "AG-204" })).balance_cents, 15000); assert.equal((await c2("POST", "/v1/ussd/agent", { kind: "out", amount_cents: 2000, agent_code: "AG-204" })).balance_cents, 13000); assert.equal((await U2("POST", "/v1/ussd/agent", { kind: "in", amount_cents: 100, agent_code: "AG-999" })).status, 403);
+        const sw1 = await c2("POST", "/v1/ussd/sim-swap", {}); assert.equal(sw1.blocked, false); assert.equal(sw1.lost_cents, 13000); await c2("POST", "/v1/ussd/agent", { kind: "in", amount_cents: 5000, agent_code: "AG-204" });
+        await c2("POST", "/v1/ussd/settings", { swap_hold: true }); const sw2 = await c2("POST", "/v1/ussd/sim-swap", {}); assert.equal(sw2.blocked, true); assert.equal(sw2.lost_cents, 0);
+        const th = await c2("GET", "/v1/ussd/threats"); assert.equal(th.threats.length, 5); assert.ok(!JSON.stringify(th).includes("why"));
+        assert.equal((await c2("POST", "/v1/ussd/threats/t1/answer", { choice: 0 })).correct, false);
+        for (const [id, ch] of Object.entries({ t1: 1, t2: 1, t3: 1, t4: 1, t5: 1 })) assert.equal((await c2("POST", `/v1/ussd/threats/${id}/answer`, { choice: ch })).correct, true);
+        assert.equal((await U2("POST", "/v1/academy/courses/ussd-mobile-money/tasks/check")).body.tasks_done, 4);
       }
       { // issuer view of wallet provisioning
         const AI = await fresh();

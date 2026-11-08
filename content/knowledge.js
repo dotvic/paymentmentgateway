@@ -814,6 +814,194 @@ Act at once. Contact your bank or payment provider, tell them it was a fraud or 
 
 Look at the **payee**, the **amount** and the **message** before you press confirm. The scan is only the start of the payment.` });
 
+pages.push({ slug: "account-to-account-payments", title: "Account-to-account payments: batch, instant and direct debit", category: "Concepts", summary: "How bank-to-bank payments are identified, batch versus instant credit transfers, recall and return, direct debit and mandates, and how they compare with cards.", markdown: `An account-to-account payment (often shortened to **A2A**) moves money straight from one bank account to another. There is no card, no card network and no interchange. This guide covers how these payments are identified, the main ways they travel, and what can go wrong. Try each in the [Account-to-account transfers lab](/labs/transfers). Banks, names and rules there are fictional.
+
+## Identifying the account
+
+Most countries identify an account with a long number that includes a **bank code** and an **account number**. International formats add a country code and two **check digits**. The check digits are worked out from the rest of the number, so a mistyped digit almost always makes the check fail and the payment is stopped before any money moves. They catch typing errors, not fraud.
+
+A newer protection is the **payee name check** (also called confirmation of payee): before you send, the bank compares the name you typed with the name on the receiving account and reports **match**, **close match** or **no match**. It catches wrong-account errors and some fraud, but not a customer who is knowingly paying a criminal under a convincing name.
+
+## Credit transfers: batch and instant
+
+A **credit transfer** is the payer pushing money to the payee.
+
+- **Batch** credit transfers are collected during the day and exchanged between banks at set **cut-offs**. They settle in the next cycle, which can be hours or days. Until a cut-off passes, the sender can often **cancel**. They usually allow higher limits and run on business days.
+- **Instant** credit transfers settle within seconds, at any hour, any day. The money is available to the payee immediately and the payment is **final**: there is no cancel button. Limits are usually lower, and the receiving bank must support the service.
+
+Because an instant payment cannot be taken back, banks do their checks **before** it is sent: the number, the name, the limit, and warnings for new payees and large amounts.
+
+## Recall and return
+
+If a transfer went to the wrong place, the sender's bank can send a **recall** request to the receiving bank. The receiving bank decides. For a genuine error it will often ask the payee and return the money if they agree. For fraud the chance depends on **speed**: criminals move money on within minutes through other accounts, so a late recall may recover little or nothing.
+
+A payment can also be **returned** by the receiving side, for example because the account is closed or the details are wrong. The money comes back to the sender, usually a day or more later for batch payments.
+
+## Direct debit: the payee pulls
+
+In a **direct debit** the payee collects money from the payer's account under a **mandate**, an authority the payer gave. It suits bills and subscriptions where the amount varies. The protections are different from a credit transfer:
+
+- The payer can **cancel the mandate** at any time, and later collections are rejected.
+- Many schemes give a **no-questions refund window** (here 56 days) for collections the payer disputes, and a longer period for unauthorised ones.
+- The payee must follow rules on notice of amount and date, and a collection above the agreed maximum is rejected.
+
+## Payments started by an app
+
+Open banking lets a regulated third party ask your bank to make a payment on your behalf, with your **consent**. See [Open banking payments and transfer fraud](/knowledge/open-banking-payments-and-transfer-fraud).
+
+## Settlement and the money's journey
+
+Banks do not send each payment one by one. Batch payments are **netted**: each bank pays or receives one balance per cycle through a central bank or settlement system. Instant payments are usually settled in near real time, or the banks pre-fund a buffer. For the same idea in the card world, see [Settlement, routing and what an acquirer does](/knowledge/settlement-routing-and-the-acquirer).
+
+## Comparing A2A with cards
+
+- **Cost**: usually lower than cards, because there is no interchange.
+- **Speed**: instant is faster than card settlement to a merchant.
+- **Protection**: weaker. There is no card-style chargeback for a purchase that goes wrong, so scams and disputes rely on bank rules and local law.
+- **Fraud shape**: far more **authorised push payment** fraud, where the customer is tricked into sending the money.
+
+Good A2A systems therefore put the safety in **before** the payment: checks, delays, warnings and clear payee names.` });
+
+pages.push({ slug: "open-banking-payments-and-transfer-fraud", title: "Open banking payments and transfer fraud", category: "Concepts", summary: "How a payment started by an app works with bank consent, why the app never sees your login, the common push-payment scams and the defences that work.", markdown: `**Open banking** lets a customer allow a regulated third party to use their bank account. For payments, a **payment initiation** provider asks the customer's bank to send a transfer, so a shop can be paid by bank transfer without handling the customer's bank login. This guide explains the flow and then looks at the fraud that surrounds bank transfers. Practise in the [Account-to-account transfers lab](/labs/transfers).
+
+## The flow
+
+1. **The app asks.** At checkout the customer picks "pay by bank". The shop's provider sends a payment request to the customer's bank: amount, payee, reference.
+2. **Redirect.** The customer is sent to their own bank's app or site.
+3. **Consent.** The bank shows what is being requested: who, how much, and that it is a one-off payment. The customer **approves with their usual strong authentication** or refuses.
+4. **Payment and status.** The bank makes the transfer, usually instant, and tells the provider whether it was accepted, so the shop can release the goods.
+
+The provider **never sees the customer's bank credentials**. Consent is limited to what was shown, and it **expires** if the customer does not act quickly.
+
+## Why merchants like it
+
+Lower cost than cards, quick confirmation, and no card number to protect. For customers it can be fast, but they give up the card's dispute rights unless the provider or bank offers its own protection.
+
+## Variable and recurring payments
+
+A customer can give a longer consent for repeated payments up to a **limit**, such as a monthly bill. The limit and the payee are agreed at the start, and the customer can withdraw consent in their bank app.
+
+## Authorised push payment fraud
+
+Most losses on bank transfers are not hacks. The customer is **tricked into authorising** the payment. Common patterns:
+
+- **Safe account scam.** A caller says to be the bank or the police and tells the customer to move money to a "safe account". The bank never does this.
+- **Invoice or supplier change.** An email says a supplier's bank details have changed. The next invoice goes to a criminal.
+- **Investment and romance scams.** Promises of guaranteed returns or a long online relationship, followed by requests for money.
+- **Purchase scams.** A cheap item is offered, but the seller insists on a bank transfer to "hold it" and refuses a protected payment.
+- **Impersonation of a friend or family member** by message.
+
+## Defences that work
+
+For the **customer**: stop when you are rushed, told to ignore warnings or told to lie to your bank. Confirm bank details by a number or address you already trust, never one in the message. Prefer a payment method with protection for purchases from people you do not know.
+
+For the **bank or provider**:
+
+- Run the **payee name check** and show the result clearly.
+- Show a **warning** that matches the likely scam, not a generic one.
+- Add **friction** to risky payments: a new payee, a large amount, a change from normal behaviour. Friction can be a pause, a question or a short delay for the first payment to a new payee.
+- Watch **receiving accounts**: new accounts that receive many payments and move them out quickly are mule accounts.
+- Make **recall and reporting** fast and clear, because minutes matter.
+
+## Who pays when it goes wrong
+
+Rules differ by country. Some regions require banks to **reimburse** victims of authorised push payment fraud in certain cases, with conditions such as the customer acting with care and reporting promptly. Others leave much of the loss with the customer. Always check the rules where you operate. In the lab, the "Would you send it?" scenarios practise the warning signs, and a successful instant scam shows that recovery is often partial or nil.
+
+For how a payment can be disputed afterwards on a card, see [Chargeback defence and evidence](/knowledge/chargeback-defence-and-evidence). For the QR version of the same risks, see [QR fraud and safe scanning](/knowledge/qr-payment-fraud-and-safe-scanning).` });
+
+pages.push({ slug: "ussd-and-mobile-money", title: "USSD and mobile money", category: "Concepts", summary: "How a USSD session works, what a wallet menu looks like, agents and cash-in and cash-out, limits, lost replies and reconciliation.", markdown: `**USSD** (unstructured supplementary service data) is a feature of mobile networks that lets a phone open a short text session with a service by dialling a code such as *123#. It needs no app, no data connection and no smartphone. That made it the base of **mobile money** in many countries, where a large share of people have a phone but no bank account. Drive one in the [USSD mobile money lab](/labs/ussd).
+
+## How a session works
+
+When you dial the code, your phone sends it to the mobile network, which passes it to the service's server. The server replies with text, the phone shows it, and each reply you type goes back the same way. The phone is just a keypad and a screen. **The server keeps the state**: which menu you are on and what you have typed so far. That is why a session has a **timeout** of a minute or so, and why a dropped connection loses your place.
+
+Screens are **short**. The limit is around 182 characters, so menus are terse and each step asks one thing: pick an option, enter a number, enter an amount, confirm, enter your PIN.
+
+## A typical wallet menu
+
+1. Balance.
+2. Send money to a phone number.
+3. Buy airtime.
+4. Pay a merchant using a short code on the till.
+5. My account: history and change PIN.
+
+Sending money usually asks for the number, the amount, a **confirmation screen that shows the fee**, then the PIN. Nothing moves until the PIN is accepted.
+
+## Mobile money in brief
+
+A mobile money **wallet** is an account held by a provider and tied to a phone number. Money enters and leaves through **agents**: small shops or kiosks that take cash and credit the wallet (**cash-in**) or pay out cash against the wallet (**cash-out**). Between wallets, money moves instantly inside the provider's own ledger. Providers hold matching funds in a **trust account** at a bank, and settle with banks and other providers separately. Many also connect to bank accounts, pay bills and take merchant payments.
+
+## Limits and controls
+
+- **Per-transaction and daily limits** cap loss and meet regulation.
+- **PIN with a retry limit.** Three wrong tries lock the wallet; unlocking needs an agent who checks identification.
+- **Know-your-customer tiers.** Lightly verified wallets get low limits; fully verified ones get higher limits.
+- **Duplicate protection.** If the same payment is sent twice within moments, a good menu asks "send again?" rather than paying twice.
+
+## When the reply is lost
+
+A session can fail after the money has moved: the provider posted the payment but the confirmation never reached the phone. The customer sees nothing and may send again. The right habit is: **check your last transactions first**. The provider's side should be **idempotent**, so retries with the same reference do not pay twice. See [Idempotency and safe retries](/knowledge/idempotency-and-retries) for the same idea in APIs.
+
+## Reconciliation
+
+The provider's ledger, the agents' cash positions and the bank trust account must agree every day. Cash-in increases wallet money and decreases the agent's e-float; cash-out does the reverse. Differences are investigated like any reconciliation break. See [Clearing, settlement advice and reconciliation](/knowledge/clearing-settlement-advice-and-reconciliation).
+
+## How it compares
+
+- **vs app**: USSD works on any phone and without data, but is slower, text-only and less flexible.
+- **vs SMS banking**: USSD is interactive within one session; SMS is one message at a time and cannot carry a secure PIN entry as safely.
+- **vs card**: no card, and the rights come from the provider's terms and local mobile money regulation.
+
+Next: [Mobile money safety](/knowledge/mobile-money-safety).` });
+
+pages.push({ slug: "mobile-money-safety", title: "Mobile money safety", category: "Concepts", summary: "SIM swap, PIN safety, phishing by text, reversal scams, agent risks, and the controls providers should apply.", markdown: `Mobile money moves real money over simple channels, so criminals target the weakest links: the SIM card, the PIN, the agent and the customer. This guide covers the main risks and the controls that reduce them. Try them in the [USSD mobile money lab](/labs/ussd).
+
+## SIM swap
+
+A **SIM swap** happens when a criminal persuades the mobile operator (or bribes a shop employee) to move your number to a new SIM that they hold. Your phone loses service and the criminal now receives your calls and texts, including one-time codes. With a PIN they have watched or guessed, they can empty the wallet from their handset.
+
+Signs: sudden "no service", a text saying a SIM was replaced, or alerts you did not expect.
+
+What helps:
+
+- **A hold on sending** for a period after a SIM change, with an alert to the customer on another channel. In the lab, turn this on and compare the outcome.
+- **Operator checks** before a SIM is replaced: identification, a call to the old number and a waiting period.
+- **Quick reporting**: if service drops without reason, use another phone to call the provider at once and block the wallet.
+
+## PIN safety
+
+- Choose a PIN that is **not** a birthday, repeated digits or a sequence. A good system rejects weak PINs.
+- **Never say it aloud** and never give it to an agent, a "support" caller or a friend. A real provider never asks for it.
+- **Shield the keypad** in shops and queues. Shoulder-surfing plus a swapped SIM is a common combination.
+- Change it if you think it was seen. Wrong tries lock the wallet, which protects you from guessing.
+
+## Phishing by text and call
+
+Messages say your wallet will close, you have won a prize or a transfer was sent by mistake and must be returned. Some include a code to dial. Dialling can start a transfer or give the sender your account details. Treat any message that **urges you to act fast** as suspect. Contact the provider using a number you already trust, and never reply with a PIN.
+
+A **reversal scam** is common: a criminal sends you a genuine payment "by mistake", then asks you to send it back. The first payment may later be reversed after your refund has gone. Ask the provider to handle a mistaken payment, not the sender.
+
+## Agents
+
+Agents are the human link. Risks include an agent who asks for your PIN, who takes extra fees, who cashes out without proper checks, or who is impersonated. Check the agent's code on the sign, enter your own PIN on your own phone, and keep the receipt message. Providers watch agents for unusual cash-in and cash-out patterns and may limit float.
+
+## Lost replies and double payments
+
+If a payment froze or showed no result, **check your last transactions before trying again**. Sending twice can pay twice. Providers help with a duplicate check and by making their side idempotent.
+
+## What providers should do
+
+- Enforce **limits**, **PIN lockouts** and **weak-PIN rejection**.
+- Hold or limit activity after a **SIM change** and alert the customer.
+- Watch for **mule wallets** that receive many small payments and cash out quickly.
+- Check **agent behaviour** and train agents.
+- Offer a simple way to **report**, freeze and recover.
+- Keep **logs** so a disputed payment can be traced without storing the PIN.
+
+## If something goes wrong
+
+Act in minutes. Call the provider from another phone, block the wallet and SIM, report to the operator and the police if it was fraud, and keep the messages. For how payments are matched afterwards, see [Clearing, settlement advice and reconciliation](/knowledge/clearing-settlement-advice-and-reconciliation).` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };
