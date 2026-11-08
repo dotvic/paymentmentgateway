@@ -29,7 +29,7 @@ const SITE_CSS = `
 .sec:hover{border-color:var(--c,#6a3df0)}.sec h2{margin:0 0 2px;font-size:22px;letter-spacing:-.02em}.sec .sub{color:var(--c,#6a3df0);font-weight:600;margin:0 0 10px}.sec p{margin:0;color:var(--mute)}
 .page{padding-top:12px;padding-bottom:56px}.page h1{max-width:none;font-size:clamp(30px,5vw,48px)}
 .panel{background:var(--panel);border:2px solid var(--line);border-radius:16px;padding:16px 18px;margin:14px 0}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:14px}.grid>.panel{margin:0}.grid{margin-bottom:22px}
 .tag{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);margin:0 6px 4px 0;background:var(--paper)}
 .tag.ok{color:var(--ok);border-color:var(--ok)}.tag.wait{color:var(--wait);border-color:var(--wait)}.tag.bad{color:var(--bad);border-color:var(--bad)}
 .prose{max-width:760px;line-height:1.65}.prose h2{margin:28px 0 8px;font-size:24px;letter-spacing:-.02em}.prose h3{margin:20px 0 6px;font-size:19px}
@@ -45,7 +45,7 @@ button.b{font:inherit;font-weight:600;border:2px solid var(--line);background:va
 button.b.p{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}button.b:disabled{opacity:.5;cursor:default}
 .err{color:var(--bad);margin:8px 0}.okmsg{color:var(--ok);margin:8px 0}
 .bar{height:8px;border-radius:99px;background:var(--line);overflow:hidden}.bar>i{display:block;height:100%;background:var(--mint)}
-.foot{border-top:1px solid var(--line);padding-top:22px;padding-bottom:40px;color:var(--mute);font-size:14px}.foot a{color:var(--mute);margin-right:14px}
+.foot{border-top:1px solid var(--line);padding-top:22px;padding-bottom:40px;color:var(--mute);font-size:14px}.foot a{color:var(--mute)}.foot div{display:flex;flex-wrap:wrap;gap:6px 14px}
 .skip{position:absolute;left:-999px}.skip:focus{left:8px;top:8px;background:#fff;padding:6px 10px;z-index:9}
 `;
 
