@@ -253,4 +253,8 @@ module.exports = [
   ["SIM swap", "Fraud in which a criminal moves a victim's phone number to a SIM card they control."],
   ["Reversal scam", "A fraud in which a criminal sends a genuine payment by mistake, asks for it back, and the first payment is later reversed."],
   ["Know your customer tiers", "Wallet levels with higher limits for customers whose identity has been verified more strongly."],
+  ["Evidence pack", "The set of documents and cover note a merchant sends to answer a chargeback."],
+  ["Exhibit", "A labelled document in an evidence pack, referred to by a letter in the cover note."],
+  ["Cover note", "A short written summary that tells the reviewer what happened, points to the exhibits and states what the merchant asks for."],
+  ["Response deadline", "The last day a merchant may send evidence for a dispute. Late evidence is not read."],
 ];

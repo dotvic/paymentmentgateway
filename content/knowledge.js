@@ -377,7 +377,18 @@ Practise assembling evidence in the dispute lab: pick evidence that fits the cat
 
 ## Recover and monitor
 
-Contact customers who truly received goods and keep the chargeback, politely first by email, then phone, then a collections agency for larger amounts. Track chargebacks **by reason**, show gross and **net after representment**, and track card-present and card-absent separately, and web separately from phone and mail. Card schemes watch merchant dispute and fraud ratios monthly; too high and your acquirer will ask for a reduction plan, and in the worst case you can lose protections or be placed in a higher-risk programme. Related: [Payment lifecycle](/knowledge/payment-lifecycle), [E-commerce fraud schemes](/knowledge/ecommerce-fraud-schemes).` });
+Contact customers who truly received goods and keep the chargeback, politely first by email, then phone, then a collections agency for larger amounts. Track chargebacks **by reason**, show gross and **net after representment**, and track card-present and card-absent separately, and web separately from phone and mail. Card schemes watch merchant dispute and fraud ratios monthly; too high and your acquirer will ask for a reduction plan, and in the worst case you can lose protections or be placed in a higher-risk programme. Related: [Payment lifecycle](/knowledge/payment-lifecycle), [E-commerce fraud schemes](/knowledge/ecommerce-fraud-schemes).
+
+## A method for building the pack
+
+1. **Read the claim.** What exactly does the cardholder say? Your pack answers that, not a general story.
+2. **List what proves the opposite.** For fraud: matching device and IP across earlier undisputed orders, account history, delivery to the cardholder's own address. For goods not received: carrier proof of delivery with a signature or photo, and the full scan history. For not as described: a dated copy of the product page and the full message thread. For a duplicate: a reference and receipt for each purchase. For a cancelled subscription: the audit log and the terms accepted.
+3. **Leave out what helps the other side.** A customer's complaint, a carrier delay notice or a photo of a defect supports the claim. Do not send it, but do not contradict it either: your note must stay true.
+4. **Keep it short.** Six well-chosen documents beat twelve. Weak documents, such as your internal score or a general policy, add little. Irrelevant ones cost credibility.
+5. **Label and explain.** Give each document an exhibit letter. Write a short cover note with a timeline, point to each exhibit, and say what you ask the bank to do. Keep the tone calm and factual; do not accuse the customer.
+6. **Send once, on time.** Evidence can usually be submitted once, and late evidence is not read.
+
+Practise on five fictional cases in the [Dispute evidence pack lab](/labs/evidence).` });
 
 pages.push({ slug: "wallet-provisioning-issuer-view", title: "Wallet provisioning and tokens: the issuer's view", category: "Concepts", summary: "What happens when a card is added to a phone wallet, how the issuer decides, and what it sees when the token is used.", markdown: `Adding a card to a phone or watch wallet involves four parties: the **cardholder**, the **wallet provider**, a **token service** run by the card network, and the **issuer**. This guide follows the flow from the issuer's side. The merchant and wallet side is in [Tokenization](/knowledge/tokenization).
 

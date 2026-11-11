@@ -50,6 +50,7 @@ module.exports = [
       { title: "How a chargeback starts", md: "The cardholder tells their bank they do not recognise or accept a charge. The issuer raises a dispute through the scheme, the money is **withdrawn from the merchant**, and the merchant has a short time to respond.\n\nA chargeback costs the amount plus usually a fee, and too many can lead to monitoring programmes or losing the ability to take cards." },
       { title: "Reason codes and categories", md: "Each scheme has its own reason codes, but they fall into a few families: **fraud**, **goods or services not received**, **not as described**, and **duplicate processing**.\n\nThe category decides what evidence helps: delivery proof for not-received, the order and customer messages for not-as-described, both charges' references for duplicates." },
       { title: "Evidence that wins", md: "Respond once, completely, and before the deadline. For fraud, show the customer is the real one: IP, email, device, earlier orders. For not-received, give the carrier tracking number and proof of delivery.\n\nA missed deadline is a loss, whatever the facts." },
+      { title: "Building an evidence pack", md: "A reviewer reads quickly, so a pack must answer the claim directly. Pick the few documents that **prove** what the claim denies, and leave out anything that helps the other side, even if it is true. Label each **exhibit**, write a short note that gives a **timeline** and says what you ask the bank to do, and keep a calm, factual tone. Missing a key document, sending too many, or sending late all lose. Practise on five cases in /labs/evidence." },
       { title: "Prevention", md: "Use 3-D Secure (liability shifts for fraud), clear descriptors on statements, fast refunds for unhappy customers, and keep delivery records. A customer who gets a quick refund does not call the bank." },
     ],
     quiz: [
@@ -57,12 +58,15 @@ module.exports = [
       Q("Which evidence fits a 'not received' dispute?", ["Customer IP address", "Carrier tracking number and proof of delivery", "Refund policy", "3-D Secure result"], 1, "Delivery proof answers the claim."),
       Q("What happens if you miss the response deadline?", ["Extension", "The dispute is lost", "It is won", "The customer is refunded by the scheme only"], 1, "Deadlines are strict."),
       Q("Why does 3-D Secure help against fraud disputes?", ["It prevents all declines", "Liability for fraud moves to the issuer", "It is cheaper", "It hides the customer"], 1, "Authenticated payments shift fraud liability."),
+      Q("Which should you leave out of an evidence pack?", ["A document that proves your side", "A message that supports the cardholder's claim", "A dated timeline", "An exhibit list"], 1, "Do not send material that helps the other side."),
       Q("Can you submit evidence more than once?", ["Yes, unlimited", "No: once, so make it complete", "Only on Fridays", "Only for refunds"], 1, "Evidence is submitted once."),
     ],
     tasks: [
       T("raise", "Raise a dispute on a successful card payment.", "Use the Disputes section in Payment Labs.", (a) => (a.disputes || []).length > 0),
       T("evidence", "Submit evidence on a dispute.", "Send the required fields for the category.", (a) => (a.disputes || []).some((d) => d.evidence_submitted_at)),
       T("won", "Win a dispute.", "Send complete evidence, or choose a win outcome.", (a) => (a.disputes || []).some((d) => d.state === "won")),
+      T("pack", "Win a case in the evidence pack lab.", "Open /labs/evidence, choose documents, write the note and submit.", (a) => !!(a.evid && a.evid.did && a.evid.did.won)),
+      T("packall", "Win all five evidence cases.", "Win every case in /labs/evidence, including avoiding harmful documents.", (a) => !!(a.evid && a.evid.did && a.evid.did.won_all)),
     ] },
   { id: "recurring", title: "Subscriptions and merchant-initiated payments", level: "Intermediate", minutes: 35, summary: "Storing a card, customer- versus merchant-initiated payments, network transaction IDs and retry rules.",
     lessons: [
