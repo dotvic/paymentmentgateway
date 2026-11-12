@@ -1013,6 +1013,117 @@ If a payment froze or showed no result, **check your last transactions before tr
 
 Act in minutes. Call the provider from another phone, block the wallet and SIM, report to the operator and the police if it was fraud, and keep the messages. For how payments are matched afterwards, see [Clearing, settlement advice and reconciliation](/knowledge/clearing-settlement-advice-and-reconciliation).` });
 
+pages.push({ slug: "how-emv-3d-secure-works", title: "How EMV 3-D Secure works", category: "Concepts", summary: "The roles, the messages and the order of events in an EMV 3-D Secure authentication, from checkout to authorisation.", markdown: `**3-D Secure** is a check that happens between checkout and authorisation. The issuer is asked whether the person paying is the cardholder, and the answer travels with the payment. This guide walks through the parts and the order. Try each flow in the [3DS Assurance lab](/labs/3ds).
+
+## Who does what
+
+- The **3DS Requestor** is your site or app.
+- The **3DS Server** speaks the protocol for you. It is usually run by your gateway or a specialist provider.
+- The **Directory Server** is the card network's switch. It finds the right issuer from the card number.
+- The **ACS** is the issuer's access control server. It weighs the risk and decides.
+
+## The order of events
+
+1. Your checkout collects the card and as much buyer and device data as it can.
+2. Optionally, a hidden issuer page runs in the buyer's browser to read device signals (the 3DS Method).
+3. The 3DS Server sends an **authentication request** (AReq) through the Directory Server to the ACS.
+4. The ACS answers (ARes). Status **Y** means authenticated silently. **C** means a challenge is needed. **N**, **R** and **U** are denied, rejected and unavailable. **A** means an attempt was recorded.
+5. If a challenge is needed, the buyer is sent to the issuer's page or screen (CReq and CRes) and answers it.
+6. The ACS sends the final **result** (RReq) to the merchant side. Trust this message.
+7. You authorise the payment through your acquirer and pass on the authentication value, the ECI and the directory server transaction ID.
+
+## Three channels
+
+- **Browser**, where the buyer is on a web page.
+- **App**, where an SDK inside your app collects the data and shows the challenge.
+- **Merchant-initiated (3RI)**, where nobody is at a screen, for example a later subscription payment that refers back to an authenticated first payment.
+
+## Why it matters
+
+Fully authenticated payments normally move fraud liability to the issuer. Without the proof you pass at authorisation, you lose that protection. Authentication is also a conversion problem: every challenge costs some buyers. The rest of this series covers how to reduce friction without losing safety.
+
+## Versions
+
+Version 2.2 or newer is the sensible target. Newer versions carry more data for the issuer, including token details and richer recurring-payment fields, and add smoother flows for out-of-band approval. Check your provider's supported versions rather than assuming.` });
+pages.push({ slug: "frictionless-challenge-and-risk-data", title: "Frictionless, challenge and risk data", category: "Concepts", summary: "How an issuer decides between a silent approval and a challenge, which data helps, and how to avoid unnecessary friction.", markdown: `Every authentication ends either **frictionless** (the buyer sees nothing) or with a **challenge** (the buyer proves who they are). The issuer chooses, based on the data you send and what it already knows. Play the issuer's role in the [3DS Assurance lab](/labs/3ds).
+
+## What the issuer weighs
+
+- **Device**: has this device been used with this card? Is the browser familiar?
+- **Amount**: is it in the cardholder's normal range?
+- **Place**: does the device location match the billing country?
+- **Speed**: many attempts in a short time looks like card testing.
+- **Account changes**: a password reset or a new delivery address just before a big order is a sign of account takeover, even on a known device.
+- **History and tokens**: a long history or a phone-wallet token is a strong comfort signal.
+
+## What you can do
+
+- Send the full cardholder set: name, email, phone, billing and shipping address. Real values only. Placeholders and guesses reduce trust.
+- Send complete device data from the browser or SDK.
+- Use a current protocol version.
+- Authenticate the first payment of a subscription properly, and link later merchant-initiated payments to it.
+- Do not force a challenge on every order. Reserve it for orders you judge risky.
+
+## Reading the trade-off
+
+Approving a fraudulent payment costs the full loss and a chargeback. Challenging a genuine buyer costs a share of them, who leave. Declining a genuine buyer loses the sale and may lose the customer. The right setting for each payment is the cheapest mistake, not the most cautious one.
+
+## Measure it
+
+Track challenge rate, completion rate and abandonment by issuer, plus the fraud rate on exempted payments. Change one setting at a time so you can see what helped.` });
+pages.push({ slug: "out-of-band-and-decoupled-authentication", title: "Out-of-band and decoupled authentication", category: "Concepts", summary: "How banking-app approval works, why it loses payments on phone browsers, how to fix it, and when decoupled authentication is used.", markdown: `Many issuers now confirm payments in their banking app instead of by text. This is called **out-of-band** authentication, because the confirmation happens on a different channel from the checkout. See both flows in the [3DS Assurance lab](/labs/3ds).
+
+## The normal flow
+
+The buyer sees the issuer's frame, which says to open the banking app. They approve there with a fingerprint or face, and the result reaches the merchant side from the issuer.
+
+## The phone-browser problem
+
+When the buyer is in a mobile browser and the banking app is on the same phone, three things can go wrong. The browser may pause or drop the page while the app is in front. The buyer may forget to come back or may not find the tab. And a design that needs a Complete button press can time out even though the buyer approved.
+
+Merchants and issuers sometimes see lower success on this path, with the issuer reporting a timeout while the merchant never learns the buyer approved.
+
+## Fixes
+
+- Have the issuer deliver the result directly to the merchant, so the order can finish without the buyer's return trip. This is the strongest fix.
+- Show a countdown so the buyer knows how long they have.
+- If no push message arrives, offer a clear way to open the app manually.
+- Keep the checkout able to resume when the result arrives late.
+- Newer protocol versions add smoother hand-offs between the merchant app and the banking app.
+
+## Decoupled authentication
+
+Decoupled authentication is a separate path for when the normal challenge page cannot be used: the device has no suitable screen, the issuer's challenge service is unavailable, a challenge cannot finish, or the buyer is not present. The issuer contacts the buyer another way (a push, a text, an email or a call) and reports back later. You set how many minutes you will wait. It is the only way to challenge a merchant-initiated payment.
+
+Plan for the wait: show the buyer what to expect, and decide what you do when the time runs out. Treat a timeout as not authenticated.` });
+pages.push({ slug: "exemptions-sca-and-liability", title: "Exemptions, SCA and liability", category: "Concepts", summary: "Which payments may skip a challenge, who carries the fraud when they do, and how to use exemptions without raising your loss.", markdown: `European rules on **strong customer authentication (SCA)** ask for two of three factors on most online payments: something the buyer knows, has or is. EMV 3-D Secure is the usual way to meet this. The rules also allow some payments to skip it. Run the numbers yourself in the strategy simulator of the [3DS Assurance lab](/labs/3ds).
+
+## Common exemptions
+
+- **Low value**: small payments, within limits that the rules set.
+- **Trusted beneficiary**: a merchant the buyer has added to a trusted list at their bank.
+- **Recurring**: later payments of the same amount to the same merchant after an authenticated first payment.
+- **Secure corporate**: business payments made through dedicated, secure processes.
+
+Details, limits and who may apply them vary by region and change over time. Check the current rules and your provider's guidance before relying on one.
+
+## The catch
+
+An exempted payment does not get the **liability shift**. If it turns out to be fraud, the loss falls on the merchant side, not the issuer. An exemption removes friction but also removes protection.
+
+The issuer can still decide to challenge an exempted payment. Be ready for that.
+
+## Using exemptions well
+
+1. Start with a payment type where your fraud rate is very low, such as recurring payments.
+2. Monitor fraud on exempted payments separately.
+3. Set a stopping point: if the fraud rate crosses it, stop requesting the exemption.
+4. Never use an exemption in place of good data. Rich data gives silent approvals with the liability shift intact.
+
+## Not every payment needs it
+
+Payments outside the scope of the rules, such as merchant-initiated payments or some non-European transactions, follow different rules. Use the readiness check in the lab to see which of your flows need what.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

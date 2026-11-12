@@ -2,6 +2,9 @@
 // Labs hub: one page that lists every lab with its topic, level and the course and guide that go with it.
 module.exports = function ({ html, UI, esc }) {
   const G = [
+    { h: "Flagship", items: [
+      ["/labs/3ds", "3DS Assurance", "Intermediate", "Explore every 3-D Secure flow, play the issuer, tune a merchant strategy and check your readiness.", "3ds-assurance", "how-emv-3d-secure-works"],
+    ] },
     { h: "Core sandbox", items: [
       ["/labs", "Payment Labs", "Beginner", "A sandbox gateway with a real API: payments, declines, 3-D Secure, webhooks, disputes, settlement.", "card-payments", "getting-started"],
       ["/labs/controls", "Card controls and idempotency", "Intermediate", "Spending controls, retries and duplicate protection.", "api-security", "idempotency-and-retries"],

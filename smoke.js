@@ -1091,13 +1091,13 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       // ---- six sections: knowledge, academy, intelligence, careers, startups
       const raw = async (m, p, b, tok) => { const r = await fetch(BASE + p, { method: m, headers: { "content-type": "application/json", ...(tok ? { authorization: "Bearer " + tok } : {}) }, body: b ? JSON.stringify(b) : undefined }); const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {} return { status: r.status, body: j, text: t }; };
       const ADM = "admsmoke";
-      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation", "/labs/qr", "/knowledge/how-qr-payments-work", "/knowledge/qr-payment-fraud-and-safe-scanning", "/academy/qr-payments", "/labs/transfers", "/labs/ussd", "/knowledge/account-to-account-payments", "/knowledge/open-banking-payments-and-transfer-fraud", "/knowledge/ussd-and-mobile-money", "/knowledge/mobile-money-safety", "/academy/account-to-account-payments", "/academy/ussd-mobile-money", "/labs/all", "/labs/evidence"]) assert.equal((await raw("GET", pth)).status, 200, pth);
+      for (const pth of ["/", "/labs", "/knowledge", "/knowledge/getting-started", "/academy", "/academy/card-payments", "/intelligence", "/intelligence/why-payments-get-declined", "/intelligence/feed.xml", "/careers", "/careers/paths", "/careers/paths/payments-engineer", "/careers/post", "/careers/profile", "/startups", "/startups/directory", "/startups/guides/regulatory-routes", "/labs/risk", "/labs/kpis", "/labs/controls", "/labs/tokens", "/labs/agents", "/labs/acquiring", "/knowledge/pos-acquiring-and-certification", "/academy/pos-acquiring", "/knowledge/agentic-payments", "/academy/ai-in-payments", "/knowledge/tokenization", "/academy/tokenization", "/developers", "/knowledge/idempotency-and-retries", "/academy/api-security", "/knowledge/risk-and-fraud", "/academy/fraud-and-risk", "/knowledge/ecommerce-fraud-schemes", "/knowledge/chargeback-defence-and-evidence", "/academy/ecommerce-risk-ops", "/labs/issuer", "/knowledge/wallet-provisioning-issuer-view", "/labs/terminal", "/knowledge/terminal-messages-and-batches", "/knowledge/emv-decision-flow-and-pin-keys", "/knowledge/settlement-routing-and-the-acquirer", "/academy/terminal-messaging", "/labs/fees", "/labs/clearing", "/knowledge/how-interchange-and-fees-work", "/knowledge/clearing-settlement-advice-and-reconciliation", "/academy/fees-clearing-reconciliation", "/labs/qr", "/knowledge/how-qr-payments-work", "/knowledge/qr-payment-fraud-and-safe-scanning", "/academy/qr-payments", "/labs/transfers", "/labs/ussd", "/knowledge/account-to-account-payments", "/knowledge/open-banking-payments-and-transfer-fraud", "/knowledge/ussd-and-mobile-money", "/knowledge/mobile-money-safety", "/academy/account-to-account-payments", "/academy/ussd-mobile-money", "/labs/all", "/labs/evidence", "/labs/3ds", "/knowledge/how-emv-3d-secure-works", "/knowledge/frictionless-challenge-and-risk-data", "/knowledge/out-of-band-and-decoupled-authentication", "/knowledge/exemptions-sca-and-liability", "/academy/3ds-assurance"]) assert.equal((await raw("GET", pth)).status, 200, pth);
       for (const pth of ["/knowledge/nope", "/academy/nope", "/intelligence/nope", "/careers/paths/nope", "/careers/jobs/job_00", "/startups/guides/nope", "/academy/certificate/cert_00"]) assert.equal((await raw("GET", pth)).status, 404, pth);
       assert.ok((await raw("GET", "/v1/knowledge")).body.pages.length >= 12 && (await raw("GET", "/v1/glossary")).body.terms.length >= 45);
       // academy
       const acct = (await raw("POST", "/v1/accounts")).body.api_key, A = (m, p, b) => raw(m, p, b, acct);
       assert.equal((await raw("GET", "/v1/academy/progress")).status, 401);
-      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 17);
+      assert.equal((await raw("GET", "/v1/academy/courses")).body.courses.length, 18);
       const crs = (await raw("GET", "/v1/academy/courses/card-payments")).body; assert.ok(crs.quiz.every((q) => Object.keys(q).sort().join() === "options,question"), "answer key never sent");
       for (let i = 0; i < 4; i++) assert.equal((await A("POST", `/v1/academy/courses/card-payments/lessons/${i}/complete`)).status, 200);
       assert.equal((await A("POST", "/v1/academy/courses/card-payments/lessons/9/complete")).status, 404);
@@ -1389,6 +1389,34 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
         for (const [id, [items, narrative]] of Object.entries(PACK)) assert.equal((await SUB(id, { items, narrative })).body.verdict, "won", id);
         assert.equal((await AE("POST", "/v1/academy/courses/disputes/tasks/check")).body.tasks_done >= 2, true);
         const hub = await fetch(BASE + "/labs/all"); assert.equal(hub.status, 200); const ht = await hub.text(); assert.ok(ht.includes("/labs/evidence") && ht.includes("/labs/ussd") && ht.includes("/labs/clearing"));
+      }
+      { // 3DS Assurance lab
+        const AS = await fresh();
+        const fl = await AS("GET", "/v1/assurance/flows"); assert.equal(fl.body.flows.length, 7);
+        assert.equal((await AS("GET", "/v1/assurance/flows/nope")).status, 404);
+        for (const f of fl.body.flows) { const r = await AS("GET", "/v1/assurance/flows/" + f.id); assert.equal(r.status, 200); assert.ok(r.body.steps.length >= 4); }
+        assert.equal((await AS("GET", "/v1/assurance/flows")).body.flows.every((f) => f.seen), true);
+        const dk = await AS("GET", "/v1/assurance/desk"); assert.equal(dk.body.transactions.length, 20); assert.ok(!JSON.stringify(dk.body).includes("fraud"), "answers hidden");
+        const mk = (f) => Object.fromEntries(dk.body.transactions.map((t) => [t.id, f(t.id)]));
+        assert.equal((await AS("POST", "/v1/assurance/desk/score", { decisions: { 1: "approve" } })).status, 400);
+        const FRAUD = [4, 8, 10, 12, 17], BORDER = [3, 7, 11, 15, 19];
+        const best = await AS("POST", "/v1/assurance/desk/score", { decisions: mk((i) => FRAUD.includes(i) ? "decline" : BORDER.includes(i) ? "challenge" : "approve") });
+        assert.equal(best.body.score, 100); assert.equal(best.body.clean, true); assert.equal(best.body.fraud_stopped, 5);
+        const allA = await AS("POST", "/v1/assurance/desk/score", { decisions: mk(() => "approve") }); assert.equal(allA.body.fraud_approved, 5); assert.equal(allA.body.score, 56); assert.equal(allA.body.clean, false);
+        const allC = await AS("POST", "/v1/assurance/desk/score", { decisions: mk(() => "challenge") }); assert.equal(allC.body.score, 90); assert.equal(allC.body.genuine_challenged, 15); assert.equal(allC.body.clean, false);
+        const S = (b) => AS("POST", "/v1/assurance/strategy", b);
+        assert.equal((await S({ data_quality: 101 })).status, 400); assert.equal((await S({ data_quality: 50, version: "9" })).status, 400); assert.equal((await S({ data_quality: 50, challenge_pref: "x" })).status, 400);
+        const weak = await S({ data_quality: 0, version: "2.1", challenge_pref: "mandate" }); assert.equal(weak.body.grade, "weak"); assert.ok(weak.body.tips.length >= 3);
+        const mid = await S({ data_quality: 40 }); assert.equal(mid.body.approval_rate_percent, 89.7); assert.equal(mid.body.grade, "fair");
+        const good = await S({ data_quality: 100, version: "2.3", oob_direct: true, ux_help: true, device_binding: true }); assert.equal(good.body.grade, "strong"); assert.ok(good.body.approval_rate_percent > 97);
+        const exm = await S({ data_quality: 100, version: "2.3", oob_direct: true, ux_help: true, exemptions: { low_value: true } }); assert.equal(exm.body.merchant_fraud_transactions, 6); assert.ok(exm.body.merchant_fraud_loss > 0);
+        assert.ok(exm.body.tips.some((t) => /liability/i.test(t)));
+        const rd = await AS("GET", "/v1/assurance/readiness"); assert.equal(rd.body.checks.length, 11);
+        assert.equal((await AS("POST", "/v1/assurance/readiness", {})).status, 400);
+        const none = await AS("POST", "/v1/assurance/readiness", { checks: {} }); assert.equal(none.body.score, 0); assert.equal(none.body.biggest_gap.id, "server_verify");
+        const all = await AS("POST", "/v1/assurance/readiness", { checks: Object.fromEntries(rd.body.checks.map((c) => [c.id, true])) }); assert.equal(all.body.score, 100); assert.equal(all.body.level, "assured");
+        const tk = (await AS("POST", "/v1/academy/courses/3ds-assurance/tasks/check")).body; assert.equal(tk.tasks_done, 7, JSON.stringify(tk.tasks));
+        const hub2 = await (await fetch(BASE + "/labs/all")).text(); assert.ok(hub2.includes("/labs/3ds"));
       }
       { // issuer view of wallet provisioning
         const AI = await fresh();
