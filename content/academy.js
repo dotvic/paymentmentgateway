@@ -428,6 +428,7 @@ module.exports = [
     tasks: [
       T("flows", "Open all seven flows in the flow explorer.", "Use /labs/3ds and click each flow.", (a) => !!(a.assur && a.assur.did && a.assur.did.flows_all)),
       T("weak", "Read the phone-browser out-of-band flow.", "Open Out of band on a phone browser in the flow explorer.", (a) => !!(a.assur && a.assur.did && a.assur.did.saw_oob_weak)),
+      T("ending", "Watch a flow end in a failure.", "In the live transaction flow, change the outcome to fails or time-out and press Play.", (a) => !!(a.assur && a.assur.did && a.assur.did.live_alt)),
       T("desk", "Score the issuer decision desk.", "Choose a decision for all 20 payments and press Score.", (a) => !!(a.assur && a.assur.did && a.assur.did.desk_done)),
       T("clean", "Run the desk with no fraud approved and no genuine buyer declined.", "Approve the clear ones, challenge the unusual ones, stop the rest.", (a) => !!(a.assur && a.assur.did && a.assur.did.desk_clean)),
       T("strong", "Reach a strong grade in the strategy simulator.", "Raise data quality, use version 2.2 or newer and turn on the out-of-band rescue.", (a) => !!(a.assur && a.assur.did && a.assur.did.strategy_strong)),

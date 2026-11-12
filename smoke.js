@@ -1416,6 +1416,11 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
         const none = await AS("POST", "/v1/assurance/readiness", { checks: {} }); assert.equal(none.body.score, 0); assert.equal(none.body.biggest_gap.id, "server_verify");
         const all = await AS("POST", "/v1/assurance/readiness", { checks: Object.fromEntries(rd.body.checks.map((c) => [c.id, true])) }); assert.equal(all.body.score, 100); assert.equal(all.body.level, "assured");
         const tk = (await AS("POST", "/v1/academy/courses/3ds-assurance/tasks/check")).body; assert.equal(tk.tasks_done, 7, JSON.stringify(tk.tasks));
+        const A2 = await fresh();
+        assert.equal((await A2("GET", "/v1/assurance/flows/frictionless?outcome=timeout")).status, 400);
+        const alt = await A2("GET", "/v1/assurance/flows/challenge-otp?outcome=fail"); assert.equal(alt.status, 200); assert.equal(alt.body.steps.at(-1).name, "Stop"); assert.equal(alt.body.steps.length, 7, "fail ending length"); assert.deepEqual(alt.body.outcomes.map((o) => o.id), ["pass", "fail", "timeout"]);
+        assert.equal((await A2("GET", "/v1/assurance/flows/oob-mobile-browser?outcome=timeout")).body.steps.at(-1).name, "Lost sale"); assert.equal((await A2("GET", "/v1/assurance/flows/challenge-otp")).body.steps.length, 7);
+        assert.equal((await A2("POST", "/v1/academy/courses/3ds-assurance/tasks/check")).body.tasks.ending, true);
         const hub2 = await (await fetch(BASE + "/labs/all")).text(); assert.ok(hub2.includes("/labs/3ds"));
       }
       { // issuer view of wallet provisioning

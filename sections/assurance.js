@@ -59,6 +59,33 @@ module.exports = function ({ html, ctx, UI, esc }) {
       ["Issuer ACS", "3DS Server", "RReq (Y/N)", "The final result."]] },
   ];
 
+
+  // Alternative endings: from step index, replace the rest of the flow. Kept on the server with the flow text.
+  const STOP = ["Merchant", "Merchant", "Stop", "Do not authorise. Show a clear message and offer another way to pay. Nothing was authenticated, so there is no liability shift."];
+  const ALT = {
+    frictionless: { fail: [4, [["Issuer ACS", "3DS Server", "ARes (N)", "The risk check found a pattern it did not like and denied the authentication without asking the buyer."], STOP]] },
+    "challenge-otp": {
+      fail: [4, [["Browser", "Issuer ACS", "CReq + wrong code", "The buyer types a wrong code. Real issuers allow a few tries first."], ["Issuer ACS", "3DS Server", "RReq (N)", "The final result is N: not authenticated."], STOP]],
+      timeout: [3, [["Issuer ACS", "Browser", "CRes", "The page asks for the code."], ["Buyer", "Buyer", "No answer", "The buyer is distracted and the challenge timer runs out."], ["Issuer ACS", "3DS Server", "RReq (N, time-out)", "The issuer reports the challenge was not completed in time."], STOP]] },
+    "oob-app": {
+      fail: [2, [["Buyer", "Bank app", "Reject", "The buyer sees a payment they do not recognise and rejects it. The system worked: this may be fraud."], ["Issuer ACS", "3DS Server", "RReq (N)", "Result N."], STOP]],
+      timeout: [2, [["Buyer", "Buyer", "Ignores the push", "The notification is missed or the phone is off."], ["Issuer ACS", "3DS Server", "RReq (N, time-out)", "The issuer reports no response in time."], STOP]] },
+    "oob-mobile-browser": {
+      timeout: [3, [["Buyer", "Buyer", "Does not return", "The buyer approved in the app but never finds the tab again."], ["Issuer ACS", "3DS Server", "RReq (time-out)", "With no direct result and no button press, the page times out. The buyer did everything right but the order fails."], ["Merchant", "Merchant", "Lost sale", "A preventable loss: a direct result from the issuer would have saved this order."]]] },
+    decoupled: {
+      fail: [4, [["Buyer", "Issuer ACS", "Declines", "The buyer says they did not make the payment."], ["Issuer ACS", "3DS Server", "RReq (N)", "Result N."], STOP]],
+      timeout: [4, [["Buyer", "Buyer", "No answer", "The buyer does not respond within the wait time you set."], ["Issuer ACS", "3DS Server", "RReq (N, time-out)", "The wait time ran out. Treat as not authenticated."], STOP]] },
+    "3ri": { fail: [2, [["Issuer ACS", "3DS Server", "ARes (N)", "The issuer will not authenticate this merchant-initiated payment. A challenge is not possible here."], ["Merchant", "Merchant", "Stop", "Do not charge. Ask the buyer to come back and authenticate, or pause the plan."]]] },
+    fallback: { fail: [5, [["Issuer ACS", "3DS Server", "RReq (N)", "The buyer declined the separate request or did not answer in time."], STOP]] },
+  };
+  const OUTCOME_LABEL = { pass: "The buyer passes", fail: "Fails or is denied", timeout: "The buyer does not respond (time-out)" };
+  function flowFor(f, outcome) {
+    const alt = ALT[f.id] || {}, o = outcome && outcome !== "pass" ? outcome : "pass";
+    if (o !== "pass" && !alt[o]) throw bad(400, "invalid_request", "This flow has no '" + o + "' ending. Choose one of: " + ["pass"].concat(Object.keys(alt)).join(", "));
+    const steps = o === "pass" ? f.steps : f.steps.slice(0, alt[o][0]).concat(alt[o][1]);
+    return { steps, outcomes: ["pass"].concat(Object.keys(alt)).map((k) => ({ id: k, label: OUTCOME_LABEL[k] })), outcome: o };
+  }
+
   // ---------- 2. issuer decision desk ----------
   // g = genuine. cls: clear (obviously fine) | border (genuine but unusual) | fraud
   const TX = [
@@ -164,11 +191,11 @@ module.exports = function ({ html, ctx, UI, esc }) {
   }
 
   function page() {
-    const body = `<style>.k select,.k input[type=number],.k input[type=range]{width:auto;display:inline-block}.fl{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.fl button.on{outline:2px solid var(--accent,#3b6cff)}.st{margin:6px 0;padding:8px 10px;border-left:3px solid var(--accent,#3b6cff);background:rgba(120,130,160,.07)}.st b{display:inline-block;min-width:110px}.row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line,#e3e7ef);flex-wrap:wrap}.row .sig{flex:1 1 280px}.row select{width:auto}.bad{color:#b3261e}.good{color:#1b7a3d}.t td,.t th{padding:5px 8px;border-bottom:1px solid var(--line,#e3e7ef);text-align:left;vertical-align:top}#lv{max-width:calc(100vw - 80px)}.lv{max-width:calc(100vw - 64px);overflow-x:auto;border:1px solid var(--line,#e3e7ef);border-radius:10px;background:rgba(120,130,160,.05)}.lv svg{display:block;min-width:640px;width:100%;height:auto}.lv text{font-size:12px;fill:currentColor}.lv .hd{font-weight:700;font-size:13px}.lv .ln{stroke:rgba(120,130,160,.45);stroke-dasharray:4 4}.lv .ar{stroke:#3b6cff;stroke-width:2;fill:none;opacity:0;transition:opacity .4s}.lv .ar.on{opacity:.9}.lv .ar.cur{stroke:#e8590c;stroke-width:3;opacity:1}.lv .lb{opacity:0;transition:opacity .4s}.lv .lb.on{opacity:1}.lv circle.dot{fill:#e8590c}#lcap{min-height:64px;margin-top:8px}.chk{display:flex;gap:8px;align-items:flex-start;padding:5px 0}.chk input{margin-top:5px}</style><div class="wrap"><h1>3DS Assurance</h1>
+    const body = `<style>.k select,.k input[type=number],.k input[type=range]{width:auto;display:inline-block}.fl{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}.fl button.on{outline:2px solid var(--accent,#3b6cff)}.st{margin:6px 0;padding:8px 10px;border-left:3px solid var(--accent,#3b6cff);background:rgba(120,130,160,.07)}.st b{display:inline-block;min-width:110px}.row{display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line,#e3e7ef);flex-wrap:wrap}.row .sig{flex:1 1 280px}.row select{width:auto}.bad{color:#b3261e}.good{color:#1b7a3d}.t td,.t th{padding:5px 8px;border-bottom:1px solid var(--line,#e3e7ef);text-align:left;vertical-align:top}#lv,#lo{max-width:calc(100vw - 80px)}.lv{max-width:calc(100vw - 64px);overflow-x:auto;border:1px solid var(--line,#e3e7ef);border-radius:10px;background:rgba(120,130,160,.05)}.lv svg{display:block;min-width:640px;width:100%;height:auto}.lv text{font-size:12px;fill:currentColor}.lv .hd{font-weight:700;font-size:13px}.lv .ln{stroke:rgba(120,130,160,.45);stroke-dasharray:4 4}.lv .ar{stroke:#3b6cff;stroke-width:2;fill:none;opacity:0;transition:opacity .4s}.lv .ar.on{opacity:.9}.lv .ar.bad{stroke:#b3261e}.lv .ar.cur{stroke:#e8590c;stroke-width:3;opacity:1}.lv .lb{opacity:0;transition:opacity .4s}.lv .lb.on{opacity:1}.lv circle.dot{fill:#e8590c}#lcap{min-height:64px;margin-top:8px}.chk{display:flex;gap:8px;align-items:flex-start;padding:5px 0}.chk input{margin-top:5px}</style><div class="wrap"><h1>3DS Assurance</h1>
 <p class="lede">3-D Secure is how online card payments are authenticated. This lab lets you see every flow, play the issuer deciding who to challenge, run a merchant strategy and watch approval, fraud and abandonment move, then check your own integration. It is a teaching model: all numbers and transactions are invented, and you use test data only.</p>
 <p class="hint" id="top"></p>
 <div class="panel k"><strong>Live transaction flow</strong><p class="hint">Watch a payment move between the parties. Press Play, or step through one message at a time.</p>
-<p><select id="lv"></select> <button type="button" id="lp">Play</button> <button type="button" id="ls">Step</button> <button type="button" id="lr">Reset</button> Speed <select id="lsp"><option value="0.5">slow</option><option value="1" selected>normal</option><option value="2">fast</option></select> <span class="hint" id="lc"></span></p>
+<p><select id="lv"></select> <select id="lo" aria-label="Outcome"></select> <button type="button" id="lp">Play</button> <button type="button" id="ls">Step</button> <button type="button" id="lr">Reset</button> Speed <select id="lsp"><option value="0.5">slow</option><option value="1" selected>normal</option><option value="2">fast</option></select> <span class="hint" id="lc"></span></p>
 <div class="lv"><svg id="lsvg" role="img" aria-label="Animated message sequence between the parties of a 3-D Secure payment" viewBox="0 0 640 120"></svg></div><div id="lcap" aria-live="polite"></div></div>
 <div class="panel k"><strong>1. Flow explorer</strong><p class="hint">Pick a flow to read it step by step. Open all seven to finish this part.</p><div class="fl" id="fl"></div><div id="fb"></div></div>
 <div class="panel k"><strong>2. Issuer decision desk</strong><p class="hint">You are the issuer's risk system. For each of 20 payments, choose approve silently, challenge, or decline. Approving fraud is costly, but so is annoying a genuine buyer.</p><div id="dk"></div><p><button type="button" id="dgo">Score my decisions</button> <span class="hint" id="dm"></span></p><div id="dres"></div></div>
@@ -205,12 +232,12 @@ else{var d=x2>x1?-6:6;o+='<path class="ar" id="a'+i+'" d="M'+x1+","+y+" L"+x2+",
 o+='<circle class="dot" id="dot" r="6" cx="-20" cy="-20" style="transition:cx .6s ease,cy .6s ease"/>';
 $("lsvg").setAttribute("viewBox","0 0 "+W+" "+H);$("lsvg").innerHTML=o;$("lcap").innerHTML='<span class="hint">Press Play or Step to begin. '+Z.esc(f.when)+"</span>";$("lc").textContent="";}
 function lstep(){if(!LF)return false;if(LI>=LF.steps.length-1){clearInterval(LT);LT=null;$("lp").textContent="Replay";return false;}LI++;var s=LF.steps[LI];
-LF.steps.forEach(function(_,i){var a=$("a"+i),t=$("t"+i);if(i<=LI){a.setAttribute("class","ar on"+(i===LI?" cur":""));t.setAttribute("class","lb on");}});
+LF.steps.forEach(function(_,i){var a=$("a"+i),t=$("t"+i);if(i<=LI){a.setAttribute("class","ar on"+(/^(Stop|Lost)/.test(LF.steps[i].name)?" bad":"")+(i===LI?" cur":""));t.setAttribute("class","lb on");}});
 var y=62+LI*46,dot=$("dot"),X=LF.X;dot.style.transition="none";dot.setAttribute("cx",X[s.from]);dot.setAttribute("cy",y);void dot.getBoundingClientRect();dot.style.transition="cx "+(0.7/parseFloat($("lsp").value))+"s ease";dot.setAttribute("cx",X[s.to]);
 $("lcap").innerHTML="<p><b>Step "+(LI+1)+" of "+LF.steps.length+": "+Z.esc(s.name)+"</b> ("+Z.esc(s.from)+" → "+Z.esc(s.to)+")<br>"+Z.esc(s.note)+"</p>";$("lc").textContent=LI+1+" / "+LF.steps.length;
 if(LI>=LF.steps.length-1){clearInterval(LT);LT=null;$("lp").textContent="Replay";}return true;}
-async function lload(id){var r=await api("GET","/v1/assurance/flows/"+id);if(r.status!==200){$("lc").textContent=Z.msg(r);return;}lbuild(r.body);}
-$("lv").onchange=function(){lload($("lv").value);};
+async function lload(id,o){var r=await api("GET","/v1/assurance/flows/"+id+(o?"?outcome="+o:""));if(r.status!==200){$("lc").textContent=Z.msg(r);return;}$("lo").innerHTML=r.body.outcomes.map(function(x){return '<option value="'+x.id+'">'+Z.esc(x.label)+"</option>";}).join("");$("lo").value=r.body.outcome;lbuild(r.body);}
+$("lv").onchange=function(){lload($("lv").value,"pass");};$("lo").onchange=function(){lload($("lv").value,$("lo").value);};
 $("ls").onclick=function(){clearInterval(LT);LT=null;$("lp").textContent="Play";lstep();};
 $("lr").onclick=function(){if(LF)lbuild(LF);};
 $("lp").onclick=function(){if(!LF)return;if(LT){clearInterval(LT);LT=null;$("lp").textContent="Play";return;}if(LI>=LF.steps.length-1)lbuild(LF);$("lp").textContent="Pause";lstep();LT=setInterval(lstep,2000/parseFloat($("lsp").value));};
@@ -229,7 +256,8 @@ if(Z.hasKey()){loadFlows().then(function(){$("lv").innerHTML=F.map(function(f){r
       if (m === "GET" && (g = path.match(/^\/v1\/assurance\/flows\/([a-z0-9-]+)$/))) {
         const f = FLOWS.find((x) => x.id === g[1]); if (!f) throw bad(404, "not_found", "No such flow");
         t.flows[f.id] = true; t.did.flow_any = true; if (FLOWS.every((x) => t.flows[x.id])) t.did.flows_all = true; if (f.id === "decoupled") t.did.saw_decoupled = true; if (f.id === "oob-mobile-browser") t.did.saw_oob_weak = true;
-        save(acc); send(res, 200, { id: f.id, title: f.title, when: f.when, steps: f.steps.map((s) => ({ from: s[0], to: s[1], name: s[2], note: s[3] })) }); return true;
+        const fv = flowFor(f, new URL(req.url, "http://x").searchParams.get("outcome")); if (fv.outcome !== "pass") t.did.live_alt = true;
+        save(acc); send(res, 200, { id: f.id, title: f.title, when: f.when, outcome: fv.outcome, outcomes: fv.outcomes, steps: fv.steps.map((s) => ({ from: s[0], to: s[1], name: s[2], note: s[3] })) }); return true;
       }
       if (m === "GET" && path === "/v1/assurance/desk") { send(res, 200, { transactions: TX.map((x) => ({ id: x.id, amount: x.amt, signals: x.sig })), choices: CH }); return true; }
       if (m === "POST" && path === "/v1/assurance/desk/score") {
