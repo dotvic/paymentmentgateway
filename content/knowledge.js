@@ -1168,6 +1168,102 @@ Ask one question: has it settled? Before settlement the amount is only a hold or
 
 Think in four numbers: what the cardholder can spend, what is held, what the merchant is owed but not yet paid, and what the merchant has been paid. The lab shows each type as a ledger over those four.` });
 
+pages.push({ slug: "credit-card-account-lifecycle", title: "Credit card account lifecycle", category: "Concepts", summary: "How an issuer runs a credit card account from the first statement to recovery, delinquency or write-off, and where each rule bites.", markdown: `So far the platform has followed a payment from the merchant's side. This guide follows the issuer's side: how a credit card account behaves month after month. Run it yourself in the [Card account lifecycle lab](/labs/account).
+
+## The shape of an account
+
+An account has a **credit limit**, rates, fees and a set of rules. Each month a **billing cycle** ends with a **statement**. The statement shows the balance, the interest and fees billed, the **minimum payment** and the **payment due date**. Between statements the account collects purchases, cash advances and payments.
+
+## A month in the life of an account
+
+1. **Transactions arrive.** An authorisation first reserves credit (open-to-buy goes down), then the posted transaction replaces the hold.
+2. **Interest accrues daily** on the balances that earn it.
+3. **The statement is cut.** Interest and fees are billed, the minimum is set.
+4. **The customer pays.** The payment is applied to fees, interest and balances in a rule-based order.
+5. **The due date arrives.** If the minimum was not paid, a late fee follows, grace is lost and delinquency starts counting.
+
+## The paths an account can take
+
+- **Pays in full every month.** Retail purchases cost no interest. Only cash advances and fees cost money.
+- **Pays the minimum.** The account stays current but loses grace, so new purchases start accruing interest at once.
+- **Pays late.** A late fee, a lost grace period and sometimes a note on the credit file.
+- **Stops paying.** The account moves through stages (late, delinquent at 30 days, seriously delinquent at 60, and a last stage at 90 or more). Cash is blocked first, then all spending, then the card is closed. At the last stage many issuers stop charging interest and fees and pass the account to collections or write it off.
+- **Falls behind and recovers.** Enough payments to clear the overdue amount return the account to current.
+
+## Closing the books
+
+Issuers close each day after all transactions are in, and run the heavier work on statement and due dates. Once a day is closed, nothing more may post to it, and closings can only be undone in reverse order. This discipline is what makes the monthly figures repeatable and auditable.
+
+## What to remember
+
+Rules vary by product, country and regulator. The lab uses invented rates and thresholds so you can see the shape of the rules without a real product's numbers.` });
+pages.push({ slug: "interest-grace-and-minimum-payments", title: "Interest, grace and minimum payments", category: "Concepts", summary: "How daily interest is worked out, why grace matters, why cash is different, and why a good minimum payment must cover interest and fees.", markdown: `Interest and the minimum payment look simple and are the source of most confusion about credit cards. This guide explains each step. Check your own numbers in the [Card account lifecycle lab](/labs/account).
+
+## Daily interest
+
+For each day, the balance that earns interest is multiplied by the annual rate and divided by the **year base** (360 or 365 days, set by the product). The days are added up over the cycle and billed on the statement. For example, 1,000 at 18 percent on a 365-day year earns about 0.49 a day, so about 15.29 over 31 days.
+
+A product may instead use a monthly method that treats every month as 30 days. In a 31-day month that gives a slightly lower figure (14.79 for the same balance). Neither is wrong. The method is part of the terms.
+
+## Grace
+
+A **grace period** makes new retail purchases interest-free as long as the previous statement was paid in full by the due date. Miss that and you lose grace for the whole cycle: interest runs on the retail balance too, including purchases made earlier in the cycle.
+
+## Why cash is different
+
+**Cash advances** accrue interest from the day the cash is taken, usually at a higher rate, and usually with a fee. There is no grace, whatever you paid last month.
+
+## What earns interest
+
+The balance that earns interest is not always the whole balance. A product may include or exclude billed interest and fees, and amounts under dispute are normally left out while the dispute is open. The lab's model charges interest only on cash and retail principal.
+
+## The minimum payment
+
+A good minimum is built from three parts: a flat floor or a percentage of principal, plus the interest and fees billed this cycle, plus anything already past due, never more than the whole balance. The second part is the important one. If a minimum is smaller than the new interest and fees, then paying it still lets the balance grow.
+
+## What it means in practice
+
+- Paying in full is the cheapest way to use a card.
+- Paying the minimum keeps the account current but removes grace.
+- Cash advances cost more even if you pay on time.
+- A payment applied to the cheap balance first leaves the expensive one running.` });
+pages.push({ slug: "delinquency-collections-and-charge-off", title: "Delinquency, collections and charge-off", category: "Concepts", summary: "What happens to a credit card account when payments stop: stages, fees, restrictions, recovery and write-off.", markdown: `When a cardholder stops paying, the account does not fail all at once. It moves through stages, and the issuer's rules change at each one. See the stages in the [Card account lifecycle lab](/labs/account).
+
+## How delinquency is counted
+
+The clock starts at the first due date that was missed. **Days past due** is the number of days since that date. If a later payment clears the overdue amount, the clock resets. If the customer pays only part, it keeps running.
+
+## The stages
+
+A common ladder looks like this.
+
+- **Late (1 to 29 days).** A late fee, and the grace period is lost.
+- **Delinquent (30 days).** Cash may be blocked and the account may be reported to credit bureaus.
+- **Seriously delinquent (60 days).** All spending is blocked.
+- **Final stage (90 days or more).** The card is closed. Many issuers stop charging interest and fees. The account moves toward collections or charge-off.
+
+Thresholds and actions vary by product and by law.
+
+## Overlimit
+
+Interest and fees can push the balance past the limit even when the customer stops buying. An overlimit fee may follow, and the next minimum includes the amount over the limit.
+
+## Recovery
+
+An account that has fallen behind can return to current when the customer pays at least the overdue amount. Some issuers then **reage** the account, which means they treat it as current again after enough on-time payments.
+
+## Collections
+
+The issuer, or a collection agency, contacts the customer, offers payment plans and may settle for less than the full balance. The rules on how and when customers can be contacted are set by law.
+
+## Charge-off
+
+A **charge-off** is an accounting decision: the issuer treats the unpaid balance as a loss. It does not cancel the debt. Interest and fees normally stop, the credit limit is set to zero, the account is reported accordingly, and the debt may still be pursued or sold. Some issuers also write off very small balances automatically, and refund very small credit balances.
+
+## What it means for product design
+
+Each stage is a lever. Earlier action keeps more customers from going further down. Too aggressive loses good customers who had one bad month. The lab lets you see where a missed payment leads and how long recovery takes.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

@@ -26,6 +26,9 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs/fees", "Fees", "Intermediate", "Build an interchange fee and compare pricing models.", "fees-clearing-reconciliation", "how-interchange-and-fees-work"],
       ["/labs/clearing", "Clearing and reconciliation", "Intermediate", "Send clearing files, read the settlement advice and reconcile it.", "fees-clearing-reconciliation", "clearing-settlement-advice-and-reconciliation"],
     ] },
+    { h: "Issuing and credit", items: [
+      ["/labs/account", "Card account lifecycle", "Intermediate", "Run a credit card account through monthly cycles: interest, grace, minimum payments, fees, delinquency and open-to-buy.", "card-account-lifecycle", "credit-card-account-lifecycle"],
+    ] },
     { h: "Beyond cards", items: [
       ["/labs/qr", "QR payments", "Beginner", "Build and take apart a QR payment code and judge seven scans.", "qr-payments", "how-qr-payments-work"],
       ["/labs/transfers", "Account-to-account transfers", "Intermediate", "Batch and instant bank transfers, direct debit and transfer scams.", "account-to-account-payments", "account-to-account-payments"],
