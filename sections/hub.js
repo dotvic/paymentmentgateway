@@ -16,6 +16,7 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs/kpis", "Payment KPIs", "Intermediate", "Authorisation rate, fraud rate, chargeback ratio and what moves them.", "ecommerce-risk-ops", "ecommerce-fraud-schemes"],
     ] },
     { h: "Cards in the real world", items: [
+      ["/labs/types", "Transaction types", "Beginner", "Every card transaction type on a debit side and a credit side, with ledgers and a sequence runner.", "transaction-types", "debit-and-credit-transaction-types"],
       ["/labs/acquiring", "POS acquiring and certification", "Advanced", "Terminals, chip decisions and certification tests.", "pos-acquiring", "pos-acquiring-and-certification"],
       ["/labs/terminal", "Terminal messaging", "Advanced", "Authorisation, reversal, void, tip adjustment and batch close.", "terminal-messaging", "terminal-messages-and-batches"],
       ["/labs/issuer", "Wallet provisioning, issuer view", "Advanced", "How an issuer decides whether to add a card to a phone.", "tokenization", "wallet-provisioning-issuer-view"],

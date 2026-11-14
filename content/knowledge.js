@@ -1124,6 +1124,50 @@ The issuer can still decide to challenge an exempted payment. Be ready for that.
 
 Payments outside the scope of the rules, such as merchant-initiated payments or some non-European transactions, follow different rules. Use the readiness check in the lab to see which of your flows need what.` });
 
+pages.push({ slug: "debit-and-credit-transaction-types", title: "Debit and credit transaction types", category: "Concepts", summary: "Every card transaction type, split into money leaving the cardholder (debit) and money coming back (credit), and how to choose between void and refund.", markdown: `Card payments use the words debit and credit in two different ways. This guide sets them apart and then goes through every transaction type. Try them in the [Transaction types lab](/labs/types).
+
+## Two meanings
+
+A **debit card** or **credit card** is the kind of card. A **debit transaction** or **credit transaction** is the direction of money. A debit transaction takes money from the cardholder. A credit transaction gives it back or cancels a debit. A refund on a debit card is still a credit transaction.
+
+## Debit side: money leaving the cardholder
+
+- **Purchase**: authorise and capture together, for goods handed over now.
+- **Pre-authorisation**: reserve money when the final amount is unknown, for example a hotel or rental.
+- **Incremental authorisation**: raise an open hold.
+- **Completion**: collect what was spent, no more than the hold. The difference is released.
+- **Tip adjustment**: add a tip while the sale is still open.
+- **Cash advance**: cash against a credit card, with a fee and interest from day one.
+- **Cashback**: cash handed over with a purchase.
+- **Quasi-cash**: something as good as cash, such as casino chips. It costs more.
+- **Recurring or instalment**: later payments the merchant starts under stored consent.
+- **Account verification**: a zero-amount check. No money moves.
+
+## Credit side: money coming back, and undo
+
+- **Refund**: money back after a sale has cleared.
+- **Original credit**: money sent to a card with no earlier sale, for example a payout.
+- **Chargeback**: the issuer takes money back from the merchant after a dispute.
+- **Representment**: the merchant's answer to a chargeback, with evidence.
+- **Void**: cancel before clearing. No money moves.
+- **Reversal**: a technical undo for a transaction that did not complete cleanly.
+
+## Void or refund?
+
+Ask one question: has it settled? Before settlement the amount is only a hold or an open sale, so void it. It is free, fast and the buyer's hold simply drops. After settlement money has moved and the only way back is a refund, which costs effort and often the original fee. A reversal is the same effect as a void but sent by the system when something failed, not by a person who changed their mind.
+
+## What goes wrong
+
+- Refunding a payment that has not settled, which leaves two debits to chase.
+- Forgetting a reversal after a time-out, leaving a hold for no goods.
+- Adding a tip after the batch closes.
+- Collecting more than the hold in a completion.
+- Treating a quasi-cash sale like a normal one and being surprised by the fee.
+
+## Following the money
+
+Think in four numbers: what the cardholder can spend, what is held, what the merchant is owed but not yet paid, and what the merchant has been paid. The lab shows each type as a ledger over those four.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };
