@@ -29,6 +29,7 @@ module.exports = function ({ html, notFound, ctx, UI, MD, esc }) {
     const list = Object.values(jobs()).filter(live).sort((a, b) => String(b.approved_at).localeCompare(String(a.approved_at))).slice(0, 200);
     const body = `<div class="crumbs">Fintech Careers</div><h1>Fintech Careers</h1><p class="lede">Jobs and professional growth. A moderated board for payments and fintech roles, and career paths that show what to learn.</p>
 <p><a href="/careers/paths">Explore career paths</a> · <a href="/careers/post">Post a job</a> · <a href="/careers/profile">My skills profile</a></p>
+<h2>Search payment jobs elsewhere</h2><p class="hint">Live searches on public job sites. You leave Zanboxx; we do not vouch for any listing.</p><ul>${PATHS.filter((p) => p.id !== "founder").map((p) => `<li><a href="/careers/paths/${esc(p.id)}">${esc(p.title)}</a>: ${searchLinks(p)}</li>`).join("")}</ul>
 <h2>Open roles</h2><input class="f" id="q" type="search" placeholder="Search title, company, location" aria-label="Search jobs" autocomplete="off"><p class="hint" id="n"></p>
 <div id="list">${list.length ? list.map(jobCard).join("") : '<p class="panel">No open roles yet. Be the first to <a href="/careers/post">post one</a>.</p>'}</div>
 <p class="hint">Listings are posted by third parties and checked for basic rules only. Zanboxx does not employ, recommend or vouch for the employers. Never pay to apply. Spot a problem? Use “Report” on the listing.</p>`;
@@ -64,6 +65,7 @@ document.addEventListener("click",async function(e){var id=e.target.dataset&&e.t
     return UI.shell({ title: "Post a job – Zanboxx Careers", description: "Post a fintech job for review.", active: "careers", body, script });
   }
   const courseTitle = (id) => (ACAD.find((c) => c.id === id) || {}).title || id;
+  const searchLinks = (p) => { const q = encodeURIComponent(p.search || p.title); return `<a href="https://www.linkedin.com/jobs/search/?keywords=${q}" target="_blank" rel="noopener noreferrer nofollow">LinkedIn</a> · <a href="https://www.indeed.com/jobs?q=${q}" target="_blank" rel="noopener noreferrer nofollow">Indeed</a>`; };
   function pathsPage() {
     const body = `<div class="crumbs"><a href="/careers">Fintech Careers</a> / Career paths</div><h1>Career paths</h1><p class="lede">What each role does, the skills it needs, and where to learn them here.</p><div class="grid">${PATHS.map((p) => `<a class="panel sec" style="--c:#e0457b;border-top-width:4px;padding:16px 18px" href="/careers/paths/${esc(p.id)}"><h3 style="margin:0 0 4px;font-size:19px">${esc(p.title)}</h3><p>${esc(p.summary)}</p></a>`).join("")}</div>`;
     return UI.shell({ title: "Career paths – Zanboxx Careers", description: "Fintech career paths and the skills behind them.", active: "careers", body });
@@ -72,7 +74,7 @@ document.addEventListener("click",async function(e){var id=e.target.dataset&&e.t
     const body = `<div class="crumbs"><a href="/careers/paths">Career paths</a></div><h1>${esc(p.title)}</h1><p class="lede">${esc(p.summary)}</p><h2>A typical day</h2><p>${esc(p.day)}</p><h2>Skills and where to learn them</h2>
 <ul>${p.skills.map(([s, c]) => `<li><strong>${esc(s)}</strong> — course: <a href="/academy/${esc(c)}">${esc(courseTitle(c))}</a> <span class="tag" data-c="${esc(c)}"></span></li>`).join("")}</ul>
 <h2>Practise</h2><p>${esc(p.labs)} Open the <a href="/labs">Payment Labs</a>.</p><h2>Read next</h2><ul>${p.learn.map((l) => `<li><a href="/${esc(l)}">${esc(l)}</a></li>`).join("")}</ul>
-<p><a href="/careers">See open roles</a></p>`;
+<h2>Find open roles</h2><p>Live searches on public job sites for this role. You leave Zanboxx, and Zanboxx does not vouch for any listing. ${searchLinks(p)}</p><p><a href="/careers">See roles posted on Zanboxx</a></p>`;
     const script = `if(Z.hasKey())Z.api("GET","/v1/academy/progress").then(function(r){(r.body.courses||[]).forEach(function(s){document.querySelectorAll('[data-c="'+s.course_id+'"]').forEach(function(e){e.textContent=s.complete?"completed":"";e.className=s.complete?"tag ok":"tag";});});});`;
     return UI.shell({ title: `${p.title} career path – Zanboxx`, description: p.summary, active: "careers", body, script });
   }

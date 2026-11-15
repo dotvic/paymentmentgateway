@@ -1210,6 +1210,8 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       assert.match((await raw("GET", "/intelligence/feed.xml")).text, /smoke-note/); assert.equal((await raw("DELETE", "/admin/articles/smoke-note", null, ADM)).status, 200);
       assert.equal((await raw("GET", "/v1/intelligence/headlines")).body.configured, false);
       // careers
+      { const cp = await (await fetch(BASE + "/careers")).text(); assert.ok(cp.includes("Search payment jobs elsewhere") && cp.includes("linkedin.com/jobs/search") && cp.includes("indeed.com/jobs") && cp.includes("/careers/paths/bnpl-credit-risk"));
+        const pp = await (await fetch(BASE + "/careers/paths/issuing-credit-operations")).text(); assert.ok(pp.includes("Find open roles") && pp.includes("card-account-lifecycle")); assert.equal((await fetch(BASE + "/careers/paths/merchant-risk-payouts")).status, 200); }
       const jb = { title: "Payments engineer", company: "Acme", location: "Warsaw", type: "full-time", apply_url: "https://acme.example/jobs/1", description: "We build payment systems and need an engineer who understands cards, webhooks and reconciliation well." };
       assert.equal((await A("POST", "/v1/careers/jobs", jb)).status, 403, "unverified email cannot post");
       key = acct; await api("POST", "/v1/account/email", { email: "careers1@example.test" }); await sleep(150); assert.equal((await api("POST", "/v1/email/verify", { token: lastLink("verify") })).status, 200);
