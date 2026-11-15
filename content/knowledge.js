@@ -1264,6 +1264,125 @@ A **charge-off** is an accounting decision: the issuer treats the unpaid balance
 
 Each stage is a lever. Earlier action keeps more customers from going further down. Too aggressive loses good customers who had one bad month. The lab lets you see where a missed payment leads and how long recovery takes.` });
 
+pages.push({ slug: "how-marketplace-payouts-work", title: "How marketplace payouts work", category: "Concepts", summary: "How a platform collects buyer payments and pays sellers: balances, fees, delays, schedules and verification.", markdown: `A marketplace takes the buyer's money and owes most of it to a seller. This guide follows that money from sale to bank account. Try it in the [Payouts lab](/labs/payouts).
+
+## The seller balance
+
+For each seller the platform keeps a balance with three parts.
+
+- **Pending**: sales that have not yet cleared.
+- **Available**: money that can be paid out now.
+- **Reserved**: money held back as protection.
+
+## From sale to payout
+
+1. A buyer pays. The platform records the sale and takes its **commission**, often a percentage plus a fixed fee.
+2. The rest becomes pending, then available after a **settlement delay** of a few days.
+3. On the **payout schedule** (daily, weekly, monthly or on request) the available balance is sent to the seller's bank account, if it is above the **minimum payout** and the seller is **verified**.
+
+## Why wait
+
+Between the sale and the payout, a buyer can ask for a refund or dispute the charge. Money that has not left the platform can cover those. Money that has already gone cannot.
+
+## Verification
+
+Before paying, the platform checks who the seller is and that the bank account is theirs. Until then it holds the money. This protects against fake sellers and stolen identities but delays honest ones, so platforms try to make verification quick.
+
+## Choices a platform makes
+
+- **Delay**: shorter pleases sellers, longer protects the platform.
+- **Schedule**: more frequent is easier for sellers and costs more in transfer fees.
+- **Instant payouts**: sent at once for a fee, normally only for trusted sellers.
+- **Fees**: how the commission is built and whether it is returned on a refund.
+
+## Failed payouts
+
+A payout can fail at the bank. For a temporary failure, such as a time-out, retry with the same reference so it cannot be paid twice. For a permanent one, such as a closed account or a name mismatch, ask the seller for new details instead of retrying.` });
+pages.push({ slug: "payout-risk-reserves-and-negative-balances", title: "Payout risk, reserves and negative balances", category: "Concepts", summary: "How refunds and chargebacks after a payout create risk for platforms, and how reserves, holds and monitoring reduce it.", markdown: `Paying sellers is where a platform takes on risk. The buyer can still dispute a payment after the seller has been paid. See it happen in the [Payouts lab](/labs/payouts).
+
+## How a negative balance happens
+
+A seller sells 1,800 and is paid out the same day. Two weeks later a chargeback arrives for 1,500 plus a dispute fee. The balance is empty, so it goes negative: the seller owes the platform. The platform can try to recover it from future sales, ask for repayment, or lose it.
+
+## What reduces the risk
+
+- **A settlement delay** keeps money on the platform longer, so refunds and disputes arrive while it can still cover them.
+- **A rolling reserve** holds back a share of each sale for a fixed time. Later chargebacks are taken from the reserve first.
+- **Verification** stops fake sellers from being paid at all.
+- **Holds for review** when behaviour changes sharply: a big jump in volume, a new category, a changed bank account.
+- **Limits on first payouts** while a seller has no history.
+- **Dispute monitoring**: sellers with high dispute rates get higher reserves or longer delays.
+
+## The trade-off
+
+Every control costs the honest seller something. A longer delay or higher reserve means slower cash. The aim is to apply the cost where the risk is, not to everyone.
+
+## Order of recovery
+
+When a debit arrives, the usual order is available balance, then reserve, then pending funds. Only what remains makes the balance negative. Some platforms then block further payouts until it is cleared.
+
+## Card network pressure
+
+A platform that carries many disputes can be put under monitoring by card networks, so controlling seller risk is also about keeping the platform's own card acceptance.` });
+pages.push({ slug: "how-buy-now-pay-later-works", title: "How buy now, pay later works", category: "Concepts", summary: "Pay in four and monthly plans, who earns what, and how the schedule and cost of credit are worked out.", markdown: `Buy now, pay later splits a purchase into instalments. This guide explains the two common plan types and the money behind them. Build one in the [BNPL lab](/labs/bnpl).
+
+## Two plan shapes
+
+**Pay in four.** A quarter at checkout, then three instalments about two weeks apart. The buyer usually pays no interest.
+
+**Monthly plans.** A larger order spread over three, six or twelve months, with interest. Each payment is the same size. Early payments are mostly interest, and later ones mostly principal.
+
+## Who pays whom
+
+The merchant is paid up front, less a **merchant discount fee** (a percentage of the order). The provider then collects the instalments from the buyer and carries the risk of non-payment.
+
+On pay in four the provider earns only from the merchant. On monthly plans it also earns interest. Late fees add a small extra, usually capped at a share of the order.
+
+## Working out a monthly plan
+
+The payment is the order amount times the monthly rate, divided by one minus the rate-adjusted factor for the number of months. For a 600.00 order over six months at 19.9 percent a year, each payment is about 105.88 and the interest over the plan is about 35.31.
+
+## Returns
+
+A return reduces what is still owed first. If the buyer has already paid more than the new total, the excess goes back to their card.
+
+## Why merchants offer it
+
+BNPL can raise conversion and basket size. The cost is the discount fee, which is usually higher than a card fee.
+
+## What to remember
+
+Rules on BNPL differ by country and are changing. In some places it is treated as consumer credit, with affordability and disclosure obligations. The lab shows how the money works, not the legal position.` });
+pages.push({ slug: "bnpl-risk-returns-and-stacking", title: "BNPL risk, returns and stacking", category: "Concepts", summary: "How providers judge affordability, why stacking is dangerous, and how late payments and returns change the picture.", markdown: `A BNPL provider carries the risk from checkout until the last instalment. This guide covers how it judges that risk. Test decisions in the [BNPL lab](/labs/bnpl).
+
+## Affordability
+
+A simple test compares what the customer already pays each month, plus the new plan, with their income. Under about 35 percent, approve. Between 35 and 45 percent, offer a smaller plan. Above that, decline. A real lender also uses credit data and its own rules. The point is to check whether the plan fits, not just whether the customer is likely to pay.
+
+## Stacking
+
+**Stacking** is taking several plans at once, perhaps with several providers, so no one sees the full picture. Three or more open plans, or a burst of new plans in a week, is a risk flag.
+
+## Missed payments
+
+A missed instalment brings a late fee within a cap, may pause further plans and may be reported. For the provider it is a cost, because the merchant was already paid up front.
+
+## Returns
+
+A return reduces what is still owed first. If the buyer has paid more than the new total, the excess goes back to their card. A full return cancels the rest of the plan.
+
+## Fraud
+
+A fraudster can use a stolen identity to open a plan and have the goods delivered. Providers treat early missed payments on a new account, and unusual delivery addresses, as fraud signals.
+
+## Controls
+
+- Limit the number of open plans.
+- Offer smaller plans instead of a flat decline when it makes sense.
+- Pause new plans after a miss.
+- Share data on open plans where the law allows.
+- Watch for plans opened and abandoned in quick succession.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

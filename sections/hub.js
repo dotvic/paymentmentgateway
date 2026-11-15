@@ -24,10 +24,12 @@ module.exports = function ({ html, UI, esc }) {
     ] },
     { h: "Money movement", items: [
       ["/labs/fees", "Fees", "Intermediate", "Build an interchange fee and compare pricing models.", "fees-clearing-reconciliation", "how-interchange-and-fees-work"],
+      ["/labs/payouts", "Payouts", "Intermediate", "Pay marketplace sellers: balances, delays, reserves, chargebacks and negative balances.", "payouts-for-platforms", "how-marketplace-payouts-work"],
       ["/labs/clearing", "Clearing and reconciliation", "Intermediate", "Send clearing files, read the settlement advice and reconcile it.", "fees-clearing-reconciliation", "clearing-settlement-advice-and-reconciliation"],
     ] },
     { h: "Issuing and credit", items: [
       ["/labs/account", "Card account lifecycle", "Intermediate", "Run a credit card account through monthly cycles: interest, grace, minimum payments, fees, delinquency and open-to-buy.", "card-account-lifecycle", "credit-card-account-lifecycle"],
+      ["/labs/bnpl", "Buy now, pay later", "Intermediate", "Build instalment plans, miss payments, return goods and test affordability and stacking.", "buy-now-pay-later", "how-buy-now-pay-later-works"],
     ] },
     { h: "Beyond cards", items: [
       ["/labs/qr", "QR payments", "Beginner", "Build and take apart a QR payment code and judge seven scans.", "qr-payments", "how-qr-payments-work"],
