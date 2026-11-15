@@ -1037,6 +1037,17 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       { const uf = await api("POST", "/v1/tutor", { question: "UPSTREAM-FAIL" }); assert.equal(uf.status, 502); assert.match(uf.body.error.message, /overloaded/); assert.equal(uf.body.error.upstream_status, 529); } assert.equal((await api("GET", "/v1/tutor")).body.remaining_today, rem, "failed calls are not counted");
       for (let i = 0; i < rem; i++) assert.equal((await api("POST", "/v1/tutor", { question: "q" + i, history: [{ role: "user", content: "a" }, { role: "assistant", content: "b" }] })).status, 200);
       const cap = await api("POST", "/v1/tutor", { question: "one more" }); assert.equal(cap.status, 429); assert.equal(cap.body.error.code, "tutor_limit");
+      { // 3DS lab tutor panel
+        const k2 = key; const t2 = await api("POST", "/v1/accounts"); key = t2.body.api_key;
+        const g0 = (await api("GET", "/v1/assurance/tutor")).body; assert.equal(g0.enabled, true); assert.equal(g0.remaining_today, 10);
+        const a1 = await api("POST", "/v1/assurance/tutor", { question: "Why is step 2 there?", flow: "decoupled", outcome: "timeout", step: 2 }); assert.equal(a1.status, 200, JSON.stringify(a1.body));
+        const c1 = aiCalls[aiCalls.length - 1].body.system; assert.ok(c1.includes("Ending: timeout") && c1.includes("looking at step 2") && c1.includes("<user_data>"));
+        assert.equal((await api("POST", "/v1/assurance/tutor", { question: "x", flow: "nope" })).status, 400);
+        assert.equal((await api("POST", "/v1/assurance/tutor", { question: "x", flow: "frictionless", outcome: "timeout" })).status, 400);
+        assert.equal((await api("POST", "/v1/assurance/tutor", { question: "Is 4242 4242 4242 4242 valid?" })).status, 422);
+        assert.equal((await api("POST", "/v1/assurance/tutor", { question: "no flow chosen" })).status, 200);
+        key = k2;
+      }
       key = null; assert.equal((await api("GET", "/v1/tutor")).status, 401); key = keep;
     }
 

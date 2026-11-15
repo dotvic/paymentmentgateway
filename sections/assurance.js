@@ -197,6 +197,7 @@ module.exports = function ({ html, ctx, UI, esc }) {
 <div class="panel k"><strong>Live transaction flow</strong><p class="hint">Watch a payment move between the parties. Press Play, or step through one message at a time.</p>
 <p><select id="lv"></select> <select id="lo" aria-label="Outcome"></select> <button type="button" id="lp">Play</button> <button type="button" id="ls">Step</button> <button type="button" id="lr">Reset</button> Speed <select id="lsp"><option value="0.5">slow</option><option value="1" selected>normal</option><option value="2">fast</option></select> <span class="hint" id="lc"></span></p>
 <div class="lv"><svg id="lsvg" role="img" aria-label="Animated message sequence between the parties of a 3-D Secure payment" viewBox="0 0 640 120"></svg></div><div id="lcap" aria-live="polite"></div></div>
+<div class="panel k" id="tp"><strong>Ask the tutor about this flow</strong><p class="hint" id="tn">The tutor sees the flow, ending and step shown above. It answers in a few sentences. Test data only: never type real card numbers.</p><p><button type="button" class="tq">Why does this step happen?</button> <button type="button" class="tq">What would change if the buyer failed?</button> <button type="button" class="tq">Who carries fraud liability here?</button></p><p><input id="tqi" maxlength="800" placeholder="Ask your own question" style="width:100%;max-width:520px"> <button type="button" id="tgo">Ask</button></p><div id="tout" aria-live="polite"></div></div>
 <div class="panel k"><strong>1. Flow explorer</strong><p class="hint">Pick a flow to read it step by step. Open all seven to finish this part.</p><div class="fl" id="fl"></div><div id="fb"></div></div>
 <div class="panel k"><strong>2. Issuer decision desk</strong><p class="hint">You are the issuer's risk system. For each of 20 payments, choose approve silently, challenge, or decline. Approving fraud is costly, but so is annoying a genuine buyer.</p><div id="dk"></div><p><button type="button" id="dgo">Score my decisions</button> <span class="hint" id="dm"></span></p><div id="dres"></div></div>
 <div class="panel k"><strong>3. Merchant strategy simulator</strong><p class="hint">10,000 orders a month at an average of 60.00. Change the settings and run it. Aim for approval of 92 percent or more with little fraud you carry yourself.</p>
@@ -242,6 +243,9 @@ $("ls").onclick=function(){clearInterval(LT);LT=null;$("lp").textContent="Play";
 $("lr").onclick=function(){if(LF)lbuild(LF);};
 $("lp").onclick=function(){if(!LF)return;if(LT){clearInterval(LT);LT=null;$("lp").textContent="Play";return;}if(LI>=LF.steps.length-1)lbuild(LF);$("lp").textContent="Pause";lstep();LT=setInterval(lstep,2000/parseFloat($("lsp").value));};
 $("lsp").onchange=function(){if(LT){clearInterval(LT);LT=setInterval(lstep,2000/parseFloat($("lsp").value));}};
+var TH=[];async function task(q){if(!q.trim())return;var b={question:q,history:TH.slice(-6)};if(LF){b.flow=LF.id;b.outcome=LF.outcome;if(LI>=0)b.step=LI+1;}$("tout").innerHTML='<p class="hint">Thinking...</p>';var r=await api("POST","/v1/assurance/tutor",b);if(r.status!==200){$("tout").innerHTML='<p class="hint">'+Z.esc(Z.msg(r))+"</p>";return;}TH.push({role:"user",content:q},{role:"assistant",content:r.body.answer});$("tout").innerHTML="<p>"+Z.esc(r.body.answer).replace(/\\n/g,"<br>")+"</p>"+(r.body.remaining_today!==undefined?'<p class="hint">'+r.body.remaining_today+" questions left today</p>":"");$("tqi").value="";}
+$("tgo").onclick=function(){task($("tqi").value);};$("tqi").onkeydown=function(e){if(e.key==="Enter")task($("tqi").value);};Array.prototype.forEach.call(document.getElementsByClassName("tq"),function(x){x.onclick=function(){task(x.textContent);};});
+api("GET","/v1/assurance/tutor").then(function(r){if(r.status===200&&!r.body.enabled){$("tn").textContent="The tutor is not switched on for this server. The flows above still explain every step.";$("tgo").disabled=true;}});
 if(Z.hasKey()){loadFlows().then(function(){$("lv").innerHTML=F.map(function(f){return '<option value="'+f.id+'">'+Z.esc(f.title)+'</option>';}).join("");lload(F[0].id);});loadDesk();loadReady();}else bar("Create a test key to start.");`;
     return UI.shell({ title: "3DS Assurance lab – Zanboxx", description: "Explore every 3-D Secure flow, play the issuer, tune a merchant authentication strategy and check your readiness. Test data only.", active: "labs", body, script });
   }
@@ -252,6 +256,23 @@ if(Z.hasKey()){loadFlows().then(function(){$("lv").innerHTML=F.map(function(f){r
       if (!path.startsWith("/v1/assurance")) return false;
       const acc = ctx.authed(req), t = st(acc);
       let g;
+      if (path === "/v1/assurance/tutor") {
+        const T = ctx.tutor, plan = ctx.planOf(acc);
+        if (m === "GET") { send(res, 200, { enabled: T.enabled(), remaining_today: T.remaining(acc, plan), limit_per_day: T.LIMITS[plan], note: "Questions go to an AI service (Anthropic) together with the flow you are looking at. Never type real card data." }); return true; }
+        if (m === "POST") {
+          const b = await readBody(req); let c = "";
+          if (T.enabled()) {
+            const f = FLOWS.find((x) => x.id === b.flow);
+            if (b.flow !== undefined && !f) throw bad(400, "invalid_request", "Unknown flow");
+            if (f) {
+              const fv = flowFor(f, b.outcome), n = Number.isInteger(b.step) && b.step >= 1 && b.step <= fv.steps.length ? b.step : 0;
+              c = "The learner is in the 3DS Assurance lab, watching this flow.\nFlow: " + f.title + ". " + f.when + "\nEnding: " + fv.outcome + "\nSteps:\n" + fv.steps.map((s, i) => (i + 1) + ". " + s[2] + " (" + s[0] + " to " + s[1] + "): " + s[3]).join("\n") + (n ? "\nThe learner is looking at step " + n + "." : "\nThe learner has not started stepping through yet.");
+            } else c = "The learner is in the 3DS Assurance lab but has not picked a flow.";
+          }
+          const out = await T.ask(acc, plan, { question: b.question, history: b.history, ctx: c });
+          t.did.tutor_used = true; save(acc); send(res, 200, out); return true;
+        }
+      }
       if (m === "GET" && path === "/v1/assurance/flows") { send(res, 200, { flows: FLOWS.map((f) => ({ id: f.id, title: f.title, when: f.when, seen: !!t.flows[f.id] })) }); return true; }
       if (m === "GET" && (g = path.match(/^\/v1\/assurance\/flows\/([a-z0-9-]+)$/))) {
         const f = FLOWS.find((x) => x.id === g[1]); if (!f) throw bad(404, "not_found", "No such flow");

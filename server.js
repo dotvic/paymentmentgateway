@@ -695,7 +695,7 @@ function handleStripeEvent(ev) {
 }
 
 const authed = (req) => { const a = auth(req), pl = planOf(a); if (limited(buckets, a.id, PLANS[pl].rpm, 60e3)) throw bad(429, "rate_limited", "Rate limit exceeded; slow down"); return a; };
-const SITE = require("./site")({ send, bad, readBody, rnd, DB, save, saveMaps, limited, clientIp, authed, planOf: (a) => planOf(a), escHtml, publicUrl: PUBLIC_URL });
+const SITE = require("./site")({ send, bad, readBody, rnd, DB, save, saveMaps, limited, clientIp, authed, tutor: TUTOR, planOf: (a) => planOf(a), escHtml, publicUrl: PUBLIC_URL });
 const TRAFFIC = require("./sections/traffic")({ DB, saveMaps, clientIp });
 const STATS_PAGE = { body: Buffer.from(TRAFFIC.page()), script: true };
 async function route(req, res) {
