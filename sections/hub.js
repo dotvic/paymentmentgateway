@@ -31,6 +31,9 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs/account", "Card account lifecycle", "Intermediate", "Run a credit card account through monthly cycles: interest, grace, minimum payments, fees, delinquency and open-to-buy.", "card-account-lifecycle", "credit-card-account-lifecycle"],
       ["/labs/bnpl", "Buy now, pay later", "Intermediate", "Build instalment plans, miss payments, return goods and test affordability and stacking.", "buy-now-pay-later", "how-buy-now-pay-later-works"],
     ] },
+    { h: "Security and keys", items: [
+      ["/labs/crypto", "Cryptography", "Advanced", "Run card verification value, PIN verification value, PIN block and chip cryptogram operations, and compare offline authentication methods.", "payment-cryptography", "how-card-verification-values-work"],
+    ] },
     { h: "Beyond cards", items: [
       ["/labs/qr", "QR payments", "Beginner", "Build and take apart a QR payment code and judge seven scans.", "qr-payments", "how-qr-payments-work"],
       ["/labs/transfers", "Account-to-account transfers", "Intermediate", "Batch and instant bank transfers, direct debit and transfer scams.", "account-to-account-payments", "account-to-account-payments"],

@@ -1383,6 +1383,133 @@ A fraudster can use a stolen identity to open a plan and have the goods delivere
 - Share data on open plans where the law allows.
 - Watch for plans opened and abandoned in quick succession.` });
 
+pages.push({ slug: "how-card-verification-values-work", title: "How card verification values work", category: "Concepts", summary: "What the 3 digits on a card are, how they are computed from the card data, and why CVV1, CVV2 and iCVV differ.", markdown: `A card verification value is a short code that proves the card data was made by someone who holds a secret key. A thief who copies the card number and expiry cannot compute it, because the key never leaves the issuer's security module.
+
+## What goes in
+
+The inputs are the card number, the expiry date (year then month) and a three-digit service code. The result depends on a secret **card verification key**, which is a double-length triple DES key.
+
+## The calculation
+
+1. Join card number, expiry and service code, then pad with zeros to 32 hexadecimal digits.
+2. Split into two 16-digit blocks.
+3. Encrypt block 1 with the left half of the key (single DES).
+4. XOR the answer with block 2.
+5. Encrypt that with both key halves (triple DES).
+6. Decimalise: read the result left to right and take the first three digits from 0 to 9. If fewer than three are found, take the letters A to F as 0 to 5.
+
+The Cryptography lab shows every one of these steps with its working values.
+
+## Three flavours
+
+- **CVV1** protects the magnetic stripe and uses the real service code.
+- **CVV2** is printed on the card for online payments. It uses the same method with the service code replaced by 000, so a stripe value cannot be turned into a printed value.
+- **iCVV** protects the stripe copy stored on a chip. It uses 999, so a copied chip image cannot be written to a stripe and used there.
+
+## Why separate values matter
+
+Each flavour answers a different attack. If the stripe copy and the printed value were the same, a shop that stored one could be used to forge the other. The service code swap makes each value useless outside its place.
+
+## Where it is checked
+
+The issuer's host sends the card data and the received value to its security module and gets back a match or no match. The key stays inside the module. When a check fails the real module says only that it failed; the lab shows the expected value so you can see what went wrong.
+
+## Limits
+
+A card verification value stops forged cards made from stolen numbers. It does nothing against a customer whose real card is stolen, or against a shop that keeps the printed value after the payment. That is why standards forbid storing it.` });
+
+pages.push({ slug: "how-pins-are-verified-and-protected", title: "How PINs are verified and protected", category: "Concepts", summary: "PIN verification values, PIN blocks, shared transport keys, translation and PIN change, in plain steps.", markdown: `A PIN must never travel or be stored in clear. Two ideas make that possible: a **PIN block** that is encrypted whenever it moves, and a **PIN verification value** that lets the issuer check a PIN without storing it.
+
+## The PIN block
+
+The PIN pad builds a 16-digit block before encrypting it. In the common basic format the PIN field is a zero, the PIN length, the PIN and filler digits. A second field holds zeros and the last twelve digits of the card number without its check digit. The two fields are combined with XOR, and the result is encrypted under a shared **PIN key**. Another format fills the PIN field with random letters so identical PINs do not give identical blocks.
+
+Mixing the card number into the block means a captured block cannot be reused on a different card.
+
+## The PIN verification value
+
+When a PIN is set, the module builds a 16-digit input from eleven digits of the card number, a key index and the first four PIN digits. It encrypts that with a **PIN verification key** and decimalises the result to four digits. The issuer stores only that value.
+
+To check a PIN later, the module opens the block, rebuilds the value and compares it with the stored one.
+
+## Translation
+
+A cash machine network and an issuer rarely share a key. A **translate** command decrypts a block under the sender's key and re-encrypts it under the receiver's key inside the module. Nobody sees the PIN at any point.
+
+## Changing a PIN
+
+The old PIN is checked first. Only then is the new PIN's verification value produced and stored.
+
+## What goes wrong
+
+- **Wrong key**: the decrypted block looks like random data and fails the layout check. This is how a key mismatch between partners usually shows up.
+- **Wrong card number**: the block opens to a different PIN, which then fails the comparison.
+- **Short verification values**: with only four digits and a limited number of tries, a stolen value could be guessed, so issuers also count wrong attempts and lock the card.
+
+The Cryptography lab lets you build a block, open it under the right and wrong keys, translate it and change a PIN.` });
+
+pages.push({ slug: "emv-cryptograms-arqc-and-arpc", title: "EMV cryptograms: ARQC and ARPC", category: "Concepts", summary: "How a chip card proves itself online and how the issuer answers, with the key hierarchy behind it.", markdown: `When a chip card goes online, it sends a **cryptogram**: a short code that only the genuine card can make for that exact transaction. The issuer checks it, and answers with a cryptogram of its own. Both sides then know who they are talking to.
+
+## The key hierarchy
+
+Each issuer holds a secret **issuer master key**. From it, and from the card number and card sequence number, a **card master key** is derived and written into the chip when the card is personalised. For each transaction, the chip derives a fresh **session key** from the card key and its transaction counter.
+
+Derivation matters because a key found in one card exposes nothing about other cards, and a session key exposes nothing beyond one transaction.
+
+## The request cryptogram (ARQC)
+
+The chip joins the transaction data (amount, other amount, country, terminal result bits, currency, date, type, a random number from the terminal) with card data (what the card supports, its transaction counter and its own risk result). It pads the data and computes a message authentication code with the session key. That 8-byte code is the request cryptogram.
+
+## The issuer's check
+
+The issuer's module rebuilds the card key, then the session key from the counter it received, recomputes the code and compares. A match shows the card is genuine and nothing in the data was changed. A different amount, date or counter gives a completely different code.
+
+## The response cryptogram (ARPC)
+
+If the issuer approves, it combines the request cryptogram with a response code, encrypts the result with the session key and sends it back. The chip recomputes it. A match shows the answer came from the real issuer, not from a device in between that is approving everything.
+
+That two-way check is called **online mutual authentication**.
+
+## Scripts
+
+An issuer can also send commands to the card, for example to block an application. Each command carries a code made with a separate message authentication key so the card knows it is genuine.
+
+## In the lab
+
+The Cryptography lab runs each of these steps with invented keys and a simplified message layout, and lets you change a single digit to watch the cryptogram change.` });
+
+pages.push({ slug: "offline-data-authentication-sda-dda-cda", title: "Offline data authentication: SDA, DDA and CDA", category: "Concepts", summary: "How a terminal with no connection checks a chip card using public key signatures, and what each method does and does not prove.", markdown: `Some payments are decided with no connection to the issuer. The terminal still wants to know the card is genuine. Public key cryptography allows that without sharing any secret with the terminal.
+
+## The chain of trust
+
+A scheme-level authority holds a private key. Its matching public key is loaded into every terminal. The authority signs a certificate for each issuer's public key, and each issuer signs the data or certificates for its cards. The terminal starts from the key it already trusts and works down the chain.
+
+## Static data authentication (SDA)
+
+The issuer signs a fixed block of card data. The terminal recovers the issuer key, hashes the card data itself and compares it with the signed copy.
+
+What it proves: the data was signed by the issuer and has not been changed.
+
+What it does not prove: that this card is the one that was signed. Anyone can copy the data and the signature to a fake card, and the check passes. That is the weakness.
+
+## Dynamic data authentication (DDA)
+
+The card has its own private key, kept secret inside the chip, and a certificate for the matching public key. The terminal sends a fresh random challenge; the card signs it. A copy has no private key, so it cannot answer, and a replayed old signature fails because the challenge is new each time.
+
+What it does not cover: the transaction. A device between card and terminal could change the amount without breaking the signature.
+
+## Combined authentication (CDA)
+
+The card signs its challenge answer together with the cryptogram and a hash of the transaction data. The terminal compares what it sent with what the card signed. A changed amount is caught.
+
+## Comparison
+
+- SDA: data is genuine. A copy passes.
+- DDA: the card is genuine. The amount is not protected.
+- CDA: the card and the transaction data are protected.
+
+The Cryptography lab runs all three against five attacks so you can see which one catches which. Its signatures use a simpler scheme than real cards do, so it teaches the idea, not the card formats.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

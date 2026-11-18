@@ -49,4 +49,8 @@ module.exports = [
     day: "Maps a client's purchase journey, recommends transaction types, authentication and settlement set-ups, and explains trade-offs between cost, approval and risk.",
     skills: [["Card payment basics", "card-payments"], ["Transaction types", "transaction-types"], ["3DS Assurance: flows, exemptions and liability", "3ds-assurance"], ["Payouts for platforms", "payouts-for-platforms"], ["Capstone: one purchase, end to end", "payments-capstone"]],
     labs: "Work through the capstone course, which follows one purchase through every lab.", learn: ["knowledge/payment-lifecycle"] },
+  { id: "payment-security-engineer", search: "payment security HSM engineer", title: "Payment security and key management engineer", summary: "Protects the secrets behind card payments: keys, PINs, cryptograms and the security modules that hold them.",
+    day: "Runs key ceremonies and rotations, configures security modules, checks that PIN and card verification values are computed and verified correctly, and investigates key mismatches between partners.",
+    skills: [["Payment cryptography", "payment-cryptography"], ["Tokenization and wallets", "tokenization"], ["API security and safe retries", "api-security"], ["Chip, stripe, POS and ATM", "card-present"]],
+    labs: "Use the Cryptography lab to run card verification value, PIN block, translation and chip cryptogram commands, and compare offline authentication methods.", learn: ["knowledge/how-card-verification-values-work", "knowledge/how-pins-are-verified-and-protected", "knowledge/emv-cryptograms-arqc-and-arpc"] },
 ];
