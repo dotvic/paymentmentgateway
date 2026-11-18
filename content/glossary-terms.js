@@ -375,4 +375,10 @@ module.exports = [
   ["Online mutual authentication", "Both sides prove themselves in an online chip payment: the issuer checks the card's cryptogram and the card checks the issuer's."],
   ["Certificate chain", "A series of signed public keys, each vouched for by the one above it, ending at a key the terminal already trusts."],
   ["Unpredictable number", "A random value from the terminal that makes each transaction's cryptogram and signature different."],
+  ["PIN offset", "The digit-by-digit difference between a customer's PIN and the natural PIN of the card. Stored instead of the PIN."],
+  ["Natural PIN", "A PIN derived from the card number and a secret key, used as the starting point for the offset method."],
+  ["Decimalisation table", "A 16-digit table that maps each hexadecimal digit of an encryption result to a decimal digit."],
+  ["Validation data", "The card number digits that are encrypted to derive a natural PIN."],
+  ["Verification value method", "Checking a PIN by recomputing a short stored value derived from the PIN, the card number and a key index."],
+  ["Offset method", "Checking a PIN by deriving the natural PIN from the card number, adding the stored offset and comparing."],
 ];

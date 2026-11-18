@@ -104,6 +104,28 @@ function randomPin({ pan, length }) {
   return { pin, pin_under_master_key: hex(enc), steps: [["Draw random digits, rejecting all-the-same and straight runs", pin], ["Encrypt under the master key so it can be stored", hex(enc)]] };
 }
 
+
+// ---- PIN offset method: a PIN derived from the card number, plus a stored per-digit difference (offset) ----
+const DEC_DEFAULT = "0123456789012345";
+function decTable(t) { t = String(t == null || t === "" ? DEC_DEFAULT : t); need(/^\d{16}$/.test(t), "decimalisation table must be 16 digits (one for each hex digit 0 to F)"); return t; }
+function naturalPin({ pan, key: kn, dectab, length }) {
+  pan = digits(pan, null, "pan"); const n = length == null ? 4 : +length; need(Number.isInteger(n) && n >= 4 && n <= 12, "length must be 4 to 12"); const t = decTable(dectab), K = key(kn || "PVK-A", "pvk"), steps = [];
+  const vd = pan.slice(-16).padStart(16, "0"); steps.push(["Validation data: the last 16 digits of the card number (zero-padded on the left)", vd]);
+  const out = hex(tdes(K, H(vd))); steps.push(["Encrypt it with the PIN verification key (triple DES)", out]);
+  const dec = Array.from(out, (c) => t[parseInt(c, 16)]).join(""); steps.push(["Map each hex digit through the decimalisation table " + t, dec]);
+  const nat = dec.slice(0, n); steps.push([`Take the first ${n} digits: the natural PIN`, nat]); return { natural: nat, steps, dectab: t };
+}
+const dsub = (a, b) => Array.from(a, (c, i) => (10 + +c - +b[i]) % 10).join(""), dadd = (a, b) => Array.from(a, (c, i) => (+c + +b[i]) % 10).join("");
+function pinOffset({ pan, pin, key: kn, dectab }) {
+  pin = digits(pin, null, "pin"); need(pin.length >= 4 && pin.length <= 12, "pin must be 4 to 12 digits");
+  const n = naturalPin({ pan, key: kn, dectab, length: pin.length }), off = dsub(pin, n.natural);
+  return { offset: off, natural: n.natural, steps: n.steps.concat([["Offset = chosen PIN minus natural PIN, digit by digit, ignoring borrows", off]]) };
+}
+function offsetCheck({ pan, pin, offset, key: kn, dectab }) {
+  offset = digits(offset, null, "offset"); const n = naturalPin({ pan, key: kn, dectab, length: offset.length }), expect = dadd(n.natural, offset);
+  return { ok: expect === pin, expected: expect, steps: n.steps.concat([["Natural PIN plus the stored offset, digit by digit: the PIN that should have been entered", "(hidden from the caller)"]]) };
+}
+
 // ---- EMV: key derivation, cryptograms ----
 function deriveMaster({ pan, psn }) {
   pan = digits(pan, null, "pan"); psn = digits(psn == null ? "00" : psn, 2, "psn"); const steps = [];
@@ -183,4 +205,4 @@ function offline({ method, attack, pan }) {
   return { method, attack, steps, detected, passed, lesson: lessons[method][attack] };
 }
 
-module.exports = { KEYS, KEY_KINDS, CVV_KIND, ATTACKS, DEFAULT_TXN, cvv, pvv, buildPinBlock, openPinBlock, randomPin, deriveMaster, sessionKey, arqc, arpc, txnData, retailMac, offline, des, tdes, decimalise, hex, H, xor, parity, luhnDigit, need };
+module.exports = { DEC_DEFAULT, naturalPin, pinOffset, offsetCheck, KEYS, KEY_KINDS, CVV_KIND, ATTACKS, DEFAULT_TXN, cvv, pvv, buildPinBlock, openPinBlock, randomPin, deriveMaster, sessionKey, arqc, arpc, txnData, retailMac, offline, des, tdes, decimalise, hex, H, xor, parity, luhnDigit, need };

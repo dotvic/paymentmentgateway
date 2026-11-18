@@ -1432,6 +1432,19 @@ When a PIN is set, the module builds a 16-digit input from eleven digits of the 
 
 To check a PIN later, the module opens the block, rebuilds the value and compares it with the stored one.
 
+## The offset method
+
+A second long-standing method stores something different. The module encrypts the card number (the validation data) under the PIN verification key and converts the result to digits with a **decimalisation table**, which maps each hex digit to a decimal digit. The first digits form a **natural PIN** that belongs to the card, not the customer. The issuer stores the digit-by-digit difference between the customer's chosen PIN and that natural PIN: the **offset**.
+
+To check a PIN, the module rebuilds the natural PIN, adds the stored offset digit by digit (ignoring carries) and compares the result with the PIN from the block.
+
+## Comparing the two
+
+- **Verification value method**: the stored value is computed from the PIN, a key index and part of the card number. Changing a PIN means computing a new value. Only four digits are kept.
+- **Offset method**: the natural PIN comes from the card number and key, and the stored offset is the difference. Changing a PIN means storing a new offset; the natural PIN never changes. The decimalisation table is part of the secret set-up, and a weak or exposed table makes guessing easier.
+
+Both keep the PIN out of storage and both depend on a key that never leaves the security module.
+
 ## Translation
 
 A cash machine network and an issuer rarely share a key. A **translate** command decrypts a block under the sender's key and re-encrypts it under the receiver's key inside the module. Nobody sees the PIN at any point.

@@ -1443,7 +1443,7 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       }
       { // Cryptography lab
         const CR = await fresh(); const cmd = (b) => CR("POST", "/v1/crypto/command", b); const pan = "4111111111111111";
-        const su = await CR("GET", "/v1/crypto/setup"); assert.equal(su.status, 200); assert.equal(su.body.commands.length, 12); assert.ok(su.body.keys["CVK-A"]);
+        const su = await CR("GET", "/v1/crypto/setup"); assert.equal(su.status, 200); assert.equal(su.body.commands.length, 14); assert.ok(su.body.keys["CVK-A"]);
         assert.equal((await cmd({ command: "generate_cvv", pan: "5555 5555 5555 4444x", expiry: "2812", service_code: "101" })).status, 422);
         assert.equal((await cmd({ command: "generate_cvv", pan: "4532015112830366", expiry: "2812", service_code: "101" })).status, 422, "non-test card refused");
         assert.equal((await cmd({ command: "nope", pan })).status, 400); assert.equal((await cmd({ command: "generate_cvv", pan, expiry: "28", service_code: "101" })).status, 400);
@@ -1478,16 +1478,18 @@ await api("POST", "/v1/account/email", { email: "learner@example.test" }); await
       }
       { // Cryptography lab, quiz and course
         const CR = await fresh(); const cmd = (b) => CR("POST", "/v1/crypto/command", b); const pan = "4111111111111111";
-        const sc = await CR("GET", "/v1/crypto/scenarios"); assert.equal(sc.body.scenarios.length, 12); assert.ok(!JSON.stringify(sc.body.scenarios).includes('"answer"'));
+        const sc = await CR("GET", "/v1/crypto/scenarios"); assert.equal(sc.body.scenarios.length, 14); assert.ok(!JSON.stringify(sc.body.scenarios).includes('"answer"'));
         assert.equal((await CR("POST", "/v1/crypto/scenarios/score", { answers: { 1: "zzz" } })).status, 400);
-        const ans = ["cvv_gen", "cvv_ver", "pvv", "pin_trans", "pin_ver", "pin_change", "arqc", "arpc", "dda", "sda", "cda", "derive"];
-        const sco = await CR("POST", "/v1/crypto/scenarios/score", { answers: Object.fromEntries(ans.map((a, i) => [i + 1, a])) }); assert.equal(sco.body.correct, 12); assert.equal(sco.body.passed, true);
+        const ans = ["cvv_gen", "cvv_ver", "pvv", "pin_trans", "pin_ver", "pin_change", "arqc", "arpc", "dda", "sda", "cda", "derive", "offset", "pvv"];
+        const sco = await CR("POST", "/v1/crypto/scenarios/score", { answers: Object.fromEntries(ans.map((a, i) => [i + 1, a])) }); assert.equal(sco.body.correct, 14); assert.equal(sco.body.passed, true);
         const bl = (await cmd({ command: "build_pin_block", pan, pin: "1234" })).body.result.pin_block, pv = (await cmd({ command: "generate_pvv", pan, pin: "1234" })).body.result.pvv;
         await cmd({ command: "verify_pin", pan, pin_block: bl, pvv: pv }); await cmd({ command: "verify_pin", pan, pin_block: bl, zpk: "ZPK-B", pvv: pv }); await cmd({ command: "translate_pin", pan, pin_block: bl });
+        const of = (await cmd({ command: "generate_offset", pan, pin: "1234" })).body; assert.equal(of.result.offset, "9759"); assert.equal((await cmd({ command: "verify_pin_offset", pan, pin_block: bl, offset: of.result.offset })).body.response, "OK pin_correct");
+        const wb = (await cmd({ command: "build_pin_block", pan, pin: "1235" })).body.result.pin_block; assert.equal((await cmd({ command: "verify_pin_offset", pan, pin_block: wb, offset: "9759" })).body.status, "declined"); assert.equal((await cmd({ command: "verify_pin_offset", pan, pin_block: bl, zpk: "ZPK-B", offset: "9759" })).body.response, "INVALID_PIN_BLOCK"); assert.equal((await cmd({ command: "generate_offset", pan, pin: "1234", dectab: "12" })).status, 400);
         const g1 = (await cmd({ command: "generate_cvv", pan, expiry: "2812", service_code: "101" })).body.result.cvv; await cmd({ command: "verify_cvv", pan, expiry: "2812", service_code: "101", cvv: g1 });
         const aq = (await cmd({ command: "generate_arqc", pan, psn: "01", atc: "0001" })).body.result.arqc; await cmd({ command: "verify_arqc", pan, psn: "01", atc: "0001", arqc: aq });
         await CR("POST", "/v1/crypto/offline", { method: "sda", attack: "clone" }); await CR("POST", "/v1/crypto/offline", { method: "dda", attack: "clone" });
-        const tk = (await CR("POST", "/v1/academy/courses/payment-cryptography/tasks/check")).body; assert.equal(tk.tasks_done, 7, JSON.stringify(tk.tasks));
+        const tk = (await CR("POST", "/v1/academy/courses/payment-cryptography/tasks/check")).body; assert.equal(tk.tasks_done, 8, JSON.stringify(tk.tasks));
         assert.ok((await (await fetch(BASE + "/labs/all")).text()).includes("/labs/crypto"));
       }
       { // Card account lifecycle lab
