@@ -400,4 +400,7 @@ module.exports = [
   ["Device fingerprint", "A value recorded at provisioning that identifies which phone a token and its keys were issued to."],
   ["Step-up verification", "An extra identity check, such as an activation code, requested when signals are not strong enough to approve straight away."],
   ["Authentication token", "A short-lived value that proves a session or device to a server; distinct from a payment token."],
+  ["Variable-length field", "A field that begins with a short length prefix telling the reader how many characters to take."],
+  ["Minor units", "The smallest unit of a currency, such as cents, used to carry amounts without a decimal point."],
+  ["Message mapping", "The table that says how fields in one message format correspond to elements in another."],
 ];

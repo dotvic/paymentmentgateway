@@ -1663,6 +1663,39 @@ Track provisioning approval rate, step-up completion rate, the share of tokens u
 
 The Cloud payments lab lets you provision a device, make payments, replay one, clone the phone, run out of keys and suspend the token. The Mobile wallets and HCE course walks through the same ideas in order.` });
 
+pages.push({ slug: "reading-card-messages-bitmaps-and-fields", title: "Reading card messages: bitmaps, fields and conversion", category: "Concepts", summary: "A step-by-step method for reading compact card messages, spotting common faults and converting to XML-style documents.", markdown: `Most card payments cross several systems, and each hop turns data from one shape into another. When something goes wrong, the fastest way to find out why is to read the raw message. This guide gives a method for reading and for converting.
+
+## The classic shape
+
+A message starts with a four-digit **type code**, followed by a **bitmap** that lists which numbered fields come next, followed by the fields themselves. Fixed fields have a set length. Variable fields begin with a short length prefix. There are no separators, so the reader depends entirely on the lengths.
+
+## How to read one
+
+- Check the type code first. Is it a request or a response, and does it match what you expected?
+- Convert the bitmap to bits and list the fields it announces.
+- Walk the fields in order, counting characters. Stop at the first thing that does not look right.
+- Do not trust anything after the first anomaly; later fields are probably shifted.
+
+## Common faults
+
+- A length prefix that is wrong or not numeric.
+- A bit set in the bitmap with no field behind it, or a field present with no bit.
+- A letter in a field that must be numeric.
+- A required field that is absent.
+- A message cut short by the network.
+
+## Converting between styles
+
+Newer systems exchange structured, nested documents with named elements. Converting a compact message into one is mostly mapping: field numbers to element names, minor-unit amounts to decimal amounts, codes to readable results. The risks are in the details. Always carry the currency, never assume the number of decimals, keep the mapping table under version control, and mask card numbers in every log.
+
+## Safe logging
+
+Log the raw message and the parsed form so support can compare them. Mask the card number to the first six and last four digits at most, and never log security codes or PIN data.
+
+## Practise
+
+The Messaging explorer builds and reads messages in a simplified teaching profile and offers eight broken messages to diagnose. The Card messaging formats course covers the same ground in order. Related: [Terminal messages, reversals and batches](/knowledge/terminal-messages-and-batches).` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

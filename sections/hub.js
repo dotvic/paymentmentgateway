@@ -20,6 +20,7 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs/types", "Transaction types", "Beginner", "Every card transaction type on a debit side and a credit side, with ledgers and a sequence runner.", "transaction-types", "debit-and-credit-transaction-types"],
       ["/labs/acquiring", "POS acquiring and certification", "Advanced", "Terminals, chip decisions and certification tests.", "pos-acquiring", "pos-acquiring-and-certification"],
       ["/labs/terminal", "Terminal messaging", "Advanced", "Authorisation, reversal, void, tip adjustment and batch close.", "terminal-messaging", "terminal-messages-and-batches"],
+      ["/labs/messages", "Messaging explorer", "Intermediate", "Build and read card messages field by field, compare with XML-style documents and find the fault in broken messages.", "messaging-formats", "reading-card-messages-bitmaps-and-fields"],
       ["/labs/issuer", "Wallet provisioning, issuer view", "Advanced", "How an issuer decides whether to add a card to a phone.", "tokenization", "wallet-provisioning-issuer-view"],
       ["/labs/agents", "Agent payments", "Advanced", "Let an AI agent pay within mandates and limits.", "ai-in-payments", "agentic-payments"],
     ] },
