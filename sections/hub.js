@@ -31,6 +31,9 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs/account", "Card account lifecycle", "Intermediate", "Run a credit card account through monthly cycles: interest, grace, minimum payments, fees, delinquency and open-to-buy.", "card-account-lifecycle", "credit-card-account-lifecycle"],
       ["/labs/bnpl", "Buy now, pay later", "Intermediate", "Build instalment plans, miss payments, return goods and test affordability and stacking.", "buy-now-pay-later", "how-buy-now-pay-later-works"],
     ] },
+    { h: "Risk and operations", items: [
+      ["/labs/merchant-risk", "Merchant risk", "Advanced", "Score a merchant at onboarding, apply a policy, monitor day by day, tune thresholds and check model drift.", "merchant-risk", "merchant-risk-onboarding-and-monitoring"],
+    ] },
     { h: "Security and keys", items: [
       ["/labs/crypto", "Cryptography", "Advanced", "Run card verification value, PIN verification value, PIN block and chip cryptogram operations, and compare offline authentication methods.", "payment-cryptography", "how-card-verification-values-work"],
     ] },

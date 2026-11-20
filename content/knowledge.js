@@ -1523,6 +1523,75 @@ The card signs its challenge answer together with the cryptogram and a hash of t
 
 The Cryptography lab runs all three against five attacks so you can see which one catches which. Its signatures use a simpler scheme than real cards do, so it teaches the idea, not the card formats.` });
 
+pages.push({ slug: "merchant-risk-onboarding-and-monitoring", title: "Merchant risk: onboarding and monitoring", category: "Concepts", summary: "How a payment company scores a merchant when it joins, applies its own rules, and keeps watching because losses arrive late.", markdown: `Approving a merchant is not a one-time decision. A platform or acquirer is on the hook for what the merchant does after approval: refunds, disputes and sometimes disappearing with customers' money. Merchant risk is the practice of scoring that exposure and acting on it.
+
+## What goes into an onboarding score
+
+- **Who they say they are**: company name, registration, owners, how long the company has existed, whether the website matches the declared business. This is often called know your business.
+- **What they plan to do**: type of business, expected monthly volume, typical basket size, share of cross-border sales.
+- **Where they are**: country risk band.
+- **Screening results**: checks on owners and directors.
+
+Each signal adds points. The total is a score, grouped into bands such as low, medium, high and severe. Good systems also show the top few signals behind the score and a reason code for each.
+
+## Policy turns a score into action
+
+The score alone does nothing. A **policy** maps each band to actions, and each client sets its own appetite:
+
+- approve as is
+- approve but ask for enhanced checks
+- send to an analyst
+- hold a **reserve** (a percentage of sales kept for some days)
+- delay settlement
+- freeze payouts
+- reject
+
+Clients also write exceptions: for example, reject any online gaming merchant scoring above 60, whatever the policy says.
+
+## Why monitoring matters
+
+Chargebacks usually arrive weeks after the sale. A merchant that looks fine on day one can ramp up volume, change its payout bank account and vanish before the first dispute lands. So platforms rescore on events: a volume spike, a jump in basket size, a surge in declines, a new country, a changed payout account, or the chargeback ratio rising.
+
+Because the disputes themselves are delayed, the early signals (volume, basket size, payout changes) matter more than the late one.
+
+## Money is the lever
+
+The practical defence is control over timing and amount: hold a reserve, delay settlement, or freeze payouts. A merchant who has already been paid cannot repay what they have taken.
+
+## Trade-offs
+
+A stricter policy catches more bad merchants and turns away more good ones. An analyst band between approve and reject lets people decide the hard cases at the cost of time. The Merchant risk lab lets you move those lines on an invented portfolio and see both costs.` });
+
+pages.push({ slug: "explainable-risk-decisions-and-audit-trails", title: "Explainable risk decisions, drift and audit trails", category: "Concepts", summary: "Why every automated merchant decision needs reasons and a record, and how a team notices a model going stale.", markdown: `A risk score that cannot be explained is hard to defend to a merchant, a regulator or your own colleagues. Three habits make automated decisions trustworthy.
+
+## Explain every decision
+
+For each decision, keep the top drivers of the score (which signals added the most points) and a short reason code for each. A merchant told only that it was declined has no way to fix anything; a reviewer told that director screening and company age drove the score knows what to check.
+
+## Keep an audit record
+
+Log the inputs, the score, the band, the decision, the policy, the model version and the time. Months later, a regulator or a merchant may ask why a merchant was held. The record answers that without anyone having to guess how the model behaved at the time.
+
+## Watch for drift
+
+Models are trained on the past. When today's merchants look different, the model's scores become less reliable. A common check is a **population stability index**: for each feature, split values into buckets, compare the share of merchants in each bucket in the training data with today's, and sum a measure of the difference.
+
+- below 0.1: stable
+- 0.1 to 0.25: watch
+- above 0.25: retrain and revalidate
+
+## A safe update rhythm
+
+A typical rhythm is daily feature updates, weekly retraining and a monthly validation with a human approval before a new model goes live. Compare the new model with the old on precision (how many flagged merchants were really bad), recall (how many bad merchants were caught) and false positives (good merchants wrongly flagged).
+
+## Separate clients, separate rules
+
+A platform serving several acquirers keeps each client's thresholds, policies and data separate. One client's appetite must never leak into another's decisions.
+
+## In the lab
+
+The Merchant risk lab produces a sample audit record for every score and a drift check on three features, so you can see what stable, watch and retrain look like.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };
