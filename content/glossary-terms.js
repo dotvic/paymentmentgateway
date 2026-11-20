@@ -393,4 +393,11 @@ module.exports = [
   ["Reason code (risk)", "A short label for a signal that contributed to a risk score."],
   ["Audit trail", "A record of the inputs, score, decision, model version and time for each automated decision."],
   ["Population stability index", "A number that measures how much a feature's distribution has shifted compared with training. Below 0.1 is stable."],
+  ["Host card emulation (HCE)", "A way for an ordinary phone app to act as a payment card without a dedicated secure chip, relying on server-held keys and limited-use credentials."],
+  ["Secure element", "A tamper-resistant chip in a phone, card or SIM that stores payment keys and runs payment logic."],
+  ["Limited-use key", "A key a phone holds for only a few payments before it expires and must be replaced."],
+  ["Key replenishment", "The phone going online to receive a new batch of limited-use keys."],
+  ["Device fingerprint", "A value recorded at provisioning that identifies which phone a token and its keys were issued to."],
+  ["Step-up verification", "An extra identity check, such as an activation code, requested when signals are not strong enough to approve straight away."],
+  ["Authentication token", "A short-lived value that proves a session or device to a server; distinct from a payment token."],
 ];

@@ -1634,6 +1634,35 @@ Build the two counts in separate queries first, then combine them. Doing it in o
 
 The Practice datasets page has three invented files and ten questions with checkable answers. Work them in a spreadsheet, SQL or Python and check yourself there.` });
 
+pages.push({ slug: "hce-wallets-limited-use-keys", title: "Phone wallets without a secure chip: limited-use keys", category: "Concepts", summary: "How a software wallet keeps a stolen key from being worth much: short-lived keys, one-time codes, device checks and refills.", markdown: `Phone wallets promise one thing: a card can be used from a phone without handing over the card number. How that is done depends on where the secrets live, and the two common designs behave differently.
+
+## Secure element wallets
+
+The secrets sit in a tamper-resistant chip. The chip makes payment codes itself and refuses to reveal its keys. Security rests on the chip and on whoever manages the chip, so devices need approved hardware and the arrangements with phone makers matter.
+
+## Host card emulation wallets
+
+An ordinary app acts as the card. Because the phone's normal memory is not as hard to attack, designers assume the phone may be compromised and reduce what is at stake:
+
+- The phone holds only a small batch of **limited-use keys**, each good for a few payments.
+- Every payment carries a counter and a one-time cryptogram.
+- The server tracks the counter and rejects any code it has seen.
+- The app asks for a new batch when it runs low, which needs a network connection.
+- The server records a **device fingerprint** at provisioning and refuses payments from another one.
+- Large payments need the phone unlocked and the cardholder verified.
+
+## Provisioning is the weak moment
+
+The identity check at provisioning decides whether the wallet can be trusted. Strong signals mean approve straight away, middling ones mean step-up with a code sent to a contact the issuer already has, and weak ones mean refuse. See [Wallet provisioning and tokens: the issuer's view](/knowledge/wallet-provisioning-issuer-view).
+
+## What to measure
+
+Track provisioning approval rate, step-up completion rate, the share of tokens used within a week, payments declined for device mismatch or replay, and keys refilled per device. A sudden rise in clone declines is worth investigating.
+
+## Try it
+
+The Cloud payments lab lets you provision a device, make payments, replay one, clone the phone, run out of keys and suspend the token. The Mobile wallets and HCE course walks through the same ideas in order.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };

@@ -9,6 +9,7 @@ module.exports = function ({ html, UI, esc }) {
       ["/labs", "Payment Labs", "Beginner", "A sandbox gateway with a real API: payments, declines, 3-D Secure, webhooks, disputes, settlement.", "card-payments", "getting-started"],
       ["/labs/controls", "Card controls and idempotency", "Intermediate", "Spending controls, retries and duplicate protection.", "api-security", "idempotency-and-retries"],
       ["/labs/tokens", "Tokenization", "Intermediate", "Swap card numbers for tokens and see what each one can do.", "tokenization", "tokenization"],
+      ["/labs/hce", "Cloud payments (HCE)", "Intermediate", "Simulate a phone wallet with limited-use keys, replay and clone checks, key refills and suspension.", "mobile-wallets-hce", "hce-wallets-limited-use-keys"],
     ] },
     { h: "Risk and fraud", items: [
       ["/labs/risk", "Risk engine", "Intermediate", "Score payments, set thresholds and weigh approvals against fraud.", "fraud-and-risk", "risk-and-fraud"],
