@@ -33,6 +33,7 @@ module.exports = function ({ html, UI, esc }) {
     ] },
     { h: "Risk and operations", items: [
       ["/labs/merchant-risk", "Merchant risk", "Advanced", "Score a merchant at onboarding, apply a policy, monitor day by day, tune thresholds and check model drift.", "merchant-risk", "merchant-risk-onboarding-and-monitoring"],
+      ["/labs/data", "Practice datasets", "Intermediate", "Download invented merchant, transaction and chargeback data and answer ten analysis questions.", "ecommerce-risk-ops", "analysing-payment-data-first-questions"],
     ] },
     { h: "Security and keys", items: [
       ["/labs/crypto", "Cryptography", "Advanced", "Run card verification value, PIN verification value, PIN block and chip cryptogram operations, and compare offline authentication methods.", "payment-cryptography", "how-card-verification-values-work"],

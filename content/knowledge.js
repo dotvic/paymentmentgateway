@@ -1592,6 +1592,48 @@ A platform serving several acquirers keeps each client's thresholds, policies an
 
 The Merchant risk lab produces a sample audit record for every score and a drift check on three features, so you can see what stable, watch and retrain look like.` });
 
+pages.push({ slug: "analysing-payment-data-first-questions", title: "Analysing payment data: first questions to ask", category: "Concepts", summary: "A practical starting list for exploring transactions, chargebacks and merchants, and the traps that make payment metrics lie.", markdown: `Payment data looks simple: rows of payments. The traps are in the definitions, the timing and the joins. These are the first questions to ask of any transaction file, and how to avoid the common mistakes.
+
+## Start with counts you can trust
+
+- How many rows, and over what dates? A file that stops on the last day of a month may be missing late-arriving records.
+- How many rows are declined, approved and refunded? Decide once whether a refunded row counts as a sale, and say so.
+- Are there duplicates? Count distinct transaction identifiers against rows.
+
+## Rates need two honest numbers
+
+A decline rate is declined rows divided by all attempts. A chargeback ratio is chargebacks divided by transactions, but which transactions? Common choices are all attempts, approved transactions, or transactions from the same month. Pick one and state it. The same data can show a ratio of 0.8 or 1.2 per cent depending on the choice.
+
+## Chargebacks are late
+
+A dispute usually opens weeks after the sale. If you divide this month's chargebacks by this month's sales you mix sales that have had time to be disputed with sales that have not. Either wait, or match each chargeback back to its sale month and compare like with like. In the practice files, disputes on late-March sales mostly open after the data ends, so a naive March ratio looks too good.
+
+## Join carefully
+
+Chargebacks link to transactions by transaction identifier, and transactions link to merchants by merchant identifier. When you join, check the row count before and after. A join that multiplies rows will inflate every total.
+
+## Group and compare
+
+Break any rate by business type, country, channel and merchant. Averages hide the story: one bad merchant in a good group can drag the group's ratio up. Look at the worst ten merchants as well as the group figure, and require a minimum volume (for example 20 transactions) before trusting a merchant's ratio.
+
+## Look for change over time
+
+Compare each merchant's volume month by month. A merchant whose volume grows several times in a month, with a larger average ticket, deserves a look. That is one of the signals the Merchant risk lab monitors.
+
+## A small SQL pattern
+
+For a chargeback ratio by business type, join the three tables, count non-declined transactions and chargebacks separately, and divide. In plain structure:
+
+    select business_type,
+           chargebacks * 1.0 / approved as ratio
+    from (counts of approved transactions and of chargebacks per business type)
+
+Build the two counts in separate queries first, then combine them. Doing it in one join is the usual way to double-count.
+
+## Practise
+
+The Practice datasets page has three invented files and ten questions with checkable answers. Work them in a spreadsheet, SQL or Python and check yourself there.` });
+
 pages.forEach((p, i) => { p.order = i; });
 const bySlug = Object.fromEntries(pages.map((p) => [p.slug, p]));
 module.exports = { pages, bySlug, TERMS };
